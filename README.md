@@ -12,6 +12,7 @@ src/fusion_eq/
   submit.py    npz writer for the Codabench contract
 vendor/starter official loaders, errata fixes, scorer (pinned commit, gitignored)
 docs/RULES.md rules and deadlines     docs/STRATEGY.md plan and risks
+docs/REPRODUCE.md pinned inputs, entrypoints, compute   docs/weights.sha256 ensemble hashes
 ```
 
 ## Commands
@@ -21,5 +22,6 @@ make setup && make test
 make data-train    # DIII-D train split -> /Volumes/PortableSSD
 make score ARGS="--n-shots 20 --skip 7000"
 ```
+Full pipeline (cache, train, mast, submission): docs/REPRODUCE.md. License: MIT.
 
 Deadlines: Phase 1 ends Oct 18, Phase 2 (blind, 3 submissions) Oct 19-26.
