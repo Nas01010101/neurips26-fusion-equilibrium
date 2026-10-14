@@ -1,0 +1,27 @@
+[project]
+name = "fusion-eq"
+version = "0.1.0"
+description = "NeurIPS 2026 Fusion Equilibrium Challenge: non-magnetic plasma flux-map reconstruction"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "scipy>=1.11",
+    "scikit-learn>=1.3",
+    "scikit-image>=0.22",
+    "matplotlib>=3.7",
+    "datasets>=2.14",
+    "huggingface_hub>=0.23",
+]
+
+[dependency-groups]
+torch = ["torch>=2.0,<2.6"]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

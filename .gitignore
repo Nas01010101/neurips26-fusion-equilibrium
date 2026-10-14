@@ -1,0 +1,9 @@
+vendor/
+data/
+runs/
+submissions/
+.venv/
+__pycache__/
+*.npz
+*.zip
+.env
