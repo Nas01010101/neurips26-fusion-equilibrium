@@ -12,6 +12,9 @@ from .freeb import solve, solve_matched
 from .qprofile import q_at, vacuum_f
 
 N_TF = 24  # MAST TF centre-rod limbs, one turn each (assumed from MAST design papers, not shipped)
+# Share of MAST stored energy carried by NBI fast ions, which Thomson cannot see: ~35% per
+# Cecconello et al., Nucl. Fusion 59 016006 (2019), citing TRANSP/NUBEAM. Literature, not fitted.
+FAST_ION_FRAC = 0.35
 E_CHARGE = 1.602176634e-19
 
 
@@ -111,6 +114,13 @@ def mast_scalars(row, t, rin, rout, kappa, delta, ti_over_te: float = 1.0):
     return q95, beta_n
 
 
+def total_beta_n(thermal, fast_ion_frac: float = FAST_ION_FRAC):
+    """Thermal betaN -> total (EFIT-like) betaN, then a running median: the Thomson pressure
+    jumps frame to frame far more than the equilibrium does."""
+    x = robust_series(np.asarray(thermal, float) / (1 - fast_ion_frac), 0.01, 10)
+    return np.where(np.isfinite(x), x, thermal)
+
+
 def robust_series(x, lo, hi, win: int = 5):
     """Clip to a physical range, then a running median in time: one broken LCFS frame should
     not become a q95 spike. NaNs are filled from neighbours, or `fill` if the shot has none."""
@@ -126,7 +136,8 @@ def robust_series(x, lo, hi, win: int = 5):
 
 def predict_mast(row, sol_scale: float = 1.0, kappa: float = 1.8, delta: float = 0.4,
                  alpha: float = 1.0, frac: float = 0.3, ti_over_te: float = 1.0,
-                 q_from_psi: bool = True, freeb_iter: int = 8, beta0: float = -1.0) -> dict:
+                 q_from_psi: bool = True, freeb_iter: int = 8, beta0: float = -1.0,
+                 fast_ion_frac: float = FAST_ION_FRAC) -> dict:
     from .paths import STARTER
     mask = np.load(STARTER / "fusion_scoring" / "masks" / "mast_envelope.npz")
     mc = mask["mask_coarse"].astype(bool)
@@ -151,6 +162,7 @@ def predict_mast(row, sol_scale: float = 1.0, kappa: float = 1.8, delta: float =
         else:
             psi[k] += plasma_psi(J, R, Z, ip[k])
     q95, beta_n = mast_scalars(row, t, rin, rout, kappa, delta, ti_over_te)
+    beta_n = total_beta_n(beta_n, fast_ion_frac)
     if q_from_psi:
         # Measured on the 3 demo shots' true psi: matches EFIT q95 within 0.1 past the first frame.
         f = vacuum_f(interp_signal(row["magnetics_time"], row["magnetics_tf_current"], t) * 1e3, N_TF)
