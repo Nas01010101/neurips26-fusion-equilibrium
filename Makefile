@@ -43,6 +43,7 @@ weights:
 # MAST physics predictions (CPU, resumable) -> $(RUNS)/mast/preds
 mast:
 	$(PY) fusion_eq.mast_batch --workers 8
+	$(PY) fusion_eq.mast_post
 
 # build + validate; add ARGS="--repo <user>/fusion-eq-predictions" to push and write the pointer zip
 submission:
