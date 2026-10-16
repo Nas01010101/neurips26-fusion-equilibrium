@@ -11,10 +11,10 @@ from .greens import MU0, interp_signal, plasma_psi, vacuum_psi
 from .freeb import solve, solve_matched
 from .qprofile import q_at, vacuum_f
 
-# The solenoid column is plain kA with no trustworthy turn count (starter fusion_data_provider.py
-# units note), and its 656 conductor rows are read as two parallel windings, so each row carries
-# half the column. One row per full current overstates the solenoid flux about 2x: demo-shot
-# psi R2 0.79 at 1.0, 0.993 at 0.5.
+# The solenoid column reads exactly 2x the FAIR-MAST level-2 pf_active solenoid current, an
+# open convention question on the Data page; its 656 conductor rows are single-turn elements.
+# 0.5 recovers the level-2 current and is the default. With the convention open, pick_sol_scale
+# chooses 0.5, 0.75 or 1.0 per shot from the Thomson inner edge (MAST inputs only).
 SOL_SCALE = 0.5
 # Candidates for the per-shot fit to the Thomson inner edge (pick_sol_scale).
 SOL_SCALES = (0.5, 0.75, 1.0)
@@ -23,13 +23,16 @@ N_TF = 24  # MAST TF centre-rod limbs, one turn each (assumed from MAST design p
 # Cecconello et al., Nucl. Fusion 59 016006 (2019), citing TRANSP/NUBEAM. Literature, not fitted.
 FAST_ION_FRAC = 0.35
 E_CHARGE = 1.602176634e-19
-# Inboard limiter (centre-column armour) radius. Chosen on the 3 demo shots' TRUE psi, where it
-# makes q_at reproduce EFIT q95 (R2 0.997; 0.98 at 0.19 m, 0.95 at 0.21 m, -0.44 without a wall),
-# so it is fixed by the machine, not by our predictions.
+# Inboard limiter (centre-column armour) radius, taken as the inner edge of MAST's design plasma,
+# R - a = 0.85 - 0.65 = 0.20 m (Sykes et al., IAEA FEC 2000, OV4/1, Table 1); the armour is 18 mm
+# of graphite outside the Inconel centre tube (Edlington et al., Rev. Sci. Instrum. 72, 421
+# (2001)). Machine geometry, not fitted.
 WALL_R = 0.20
 # Frames per running mean of the plasma flux and q95. Successive EFIT frames are 5 ms apart, much
 # shorter than the current-diffusion time, so frame-to-frame scatter in the solve is noise.
-# Chosen on the demo shots (S 0.719 -> 0.746 for 5; 7 trades triangularity for volume).
+# The scatter enters through the Thomson outer edge that places each solve; leave-one-out CV of a
+# running mean over that edge on all 1206 public test shots (mast_smooth_cv, MAST inputs only)
+# picks 7 Thomson pulses = 29 ms = 5 EFIT frames.
 SMOOTH = 5
 # Frames per running mean of betaN. Thomson pressure scatters far more frame to frame than the
 # stored energy can change (confinement time tens of ms); 9 frames = 45 ms. Demo betaN R2
@@ -43,9 +46,10 @@ def _median5(x):
     return np.nanmedian(np.stack([pad[:, k:k + x.shape[1]] for k in range(5)]), axis=0)
 
 
-def thomson_edges(row, times, frac: float = 0.3):
+def thomson_edges(row, times, frac: float = 0.3, raw: bool = False):
     """(R_in, R_out) per time (ms): outermost channels whose 5-channel median density exceeds
-    `frac` of the profile's 90th percentile. NaN where the profile is empty."""
+    `frac` of the profile's 90th percentile. NaN where the profile is empty. `raw` returns them
+    per Thomson pulse instead, without interpolating over empty pulses."""
     from data_fixes import align_mast_thomson_core
     R, _, ne = align_mast_thomson_core(row)
     tt = np.asarray(row["thomson_core_times"], float)
@@ -60,9 +64,42 @@ def thomson_edges(row, times, frac: float = 0.3):
         if ok.size:
             rin[i], rout[i] = R[ok[0]], R[ok[-1]]
     good = np.isfinite(rin)
+    if raw:
+        return rin, rout
     if not good.any():
         return np.full(len(times), np.nan), np.full(len(times), np.nan)
     return np.interp(times, tt[good], rin[good]), np.interp(times, tt[good], rout[good])
+
+
+def thomson_te(row, times):
+    """(R_ch ascending, Te (len(times), n_ch) eV) from the core Thomson frame nearest each time."""
+    from data_fixes import align_mast_thomson_core
+    R, Te, _ = align_mast_thomson_core(row)
+    tt = np.asarray(row["thomson_core_times"], float)
+    order = np.argsort(R)
+    k = np.abs(tt[None] - np.asarray(times, float)[:, None]).argmin(1)
+    return R[order], np.asarray(Te, float)[k][:, order]
+
+
+def spitzer_profile(R_ch, te, R, Z, n_bins: int = 10, min_ch: int = 5):
+    """Profile callable for freeb.solve: J shape Te^1.5 (Spitzer conductivity, E constant on a
+    relaxed ohmic plasma), with Te put on psi_N through the midplane Thomson channels of the
+    current solve. Binned medians, forced non-increasing outward, 0 at the LCFS. Falls back to
+    1 - psi_N when fewer than `min_ch` channels with Te lie inside the LCFS."""
+    iz = int(np.argmin(np.abs(Z)))  # Thomson chords sit at Z = 0
+    edges = np.linspace(0, 1, n_bins + 1)
+
+    def f(pn, inside):
+        x = np.interp(R_ch, R, pn[iz])
+        ok = (np.interp(R_ch, R, inside[iz].astype(float)) > 0.5) & np.isfinite(te) & (te > 0)
+        if ok.sum() < min_ch:
+            return 1 - pn
+        b = np.clip(np.digitize(x[ok], edges) - 1, 0, n_bins - 1)
+        xs = [(edges[i] + edges[i + 1]) / 2 for i in range(n_bins) if (b == i).any()]
+        ys = np.minimum.accumulate([np.median(te[ok][b == i]) for i in range(n_bins) if (b == i).any()])
+        ys = (ys / ys[0]) ** 1.5
+        return np.interp(pn, np.append(xs, 1.0), np.append(ys, 0.0))
+    return f
 
 
 def machine_mask(row, R, Z, clearance: float = 0.05) -> np.ndarray:
@@ -105,8 +142,9 @@ def q95_iter(r0, a, b0, ip_ma, kappa, delta):
     return 5 * a ** 2 * b0 / (r0 * ip_ma) * shape * (1.17 - 0.65 * eps) / (1 - eps ** 2) ** 2
 
 
-def mean_pressure(row, times, rin, rout, ti_over_te: float = 1.0):
-    """Volume-averaged thermal pressure (Pa) at `times` from midplane Thomson.
+def mean_pressure(row, times, rin, rout, ti_over_te: float = 1.0, raw: bool = False):
+    """Volume-averaged thermal pressure (Pa) at `times` from midplane Thomson; `raw` returns it
+    per Thomson pulse, NaN where a pulse has no usable profile.
 
     Channels map to rho = |R - r0| / a; the profile is averaged over the cross-section with
     weight 2 rho d rho (exact for nested similar ellipses). p = ne e Te (1 + Ti/Te), ni = ne."""
@@ -130,6 +168,8 @@ def mean_pressure(row, times, rin, rout, ti_over_te: float = 1.0):
         prof = np.interp(grid, rho[ok][o], pi[ok][o])
         out[i] = np.trapezoid(prof * 2 * grid, grid)
     good = np.isfinite(out)
+    if raw:
+        return out
     return np.interp(times, tt[good], out[good]) if good.any() else np.full(len(times), np.nan)
 
 
@@ -231,7 +271,13 @@ def pick_sol_scale(row, scales=SOL_SCALES, n_frames: int = 3, kappa: float = 1.8
 def predict_mast(row, sol_scale: float | str = SOL_SCALE, kappa: float = 1.8, delta: float = 0.4,
                  alpha: float = 1.0, frac: float = 0.3, ti_over_te: float = 1.0,
                  q_from_psi: bool = True, freeb_iter: int = 8, beta0: float = -1.0,
-                 fast_ion_frac: float = FAST_ION_FRAC) -> dict:
+                 fast_ion_frac: float = FAST_ION_FRAC, profile: str = "power",
+                 vertical: bool = False, warm: bool = False) -> dict:
+    """`profile` "spitzer" takes the J shape from Thomson Te (spitzer_profile); `vertical` holds
+    each frame at coil force balance inside the solve (freeb.solve); `warm` searches beta0 only
+    within 0.1 of the previous frame's value. J itself always restarts from the Thomson-centred
+    shape: carrying J over lets the Spitzer mapping walk the axis outward frame after frame
+    (shot 0 axis 0.84 -> 1.70 m), while a fresh start anchors every frame to the measured edges."""
     R = np.asarray(row["efit_grid_R"], float)
     Z = np.asarray(row["efit_grid_Z"], float)
     mc = machine_mask(row, R, Z)
@@ -241,18 +287,29 @@ def predict_mast(row, sol_scale: float | str = SOL_SCALE, kappa: float = 1.8, de
     vac = vacuum_psi(row, R, Z, t, {"magnetics_sol_current": sol_scale})
     ip = interp_signal(row["magnetics_time"], row["magnetics_plasma_current"], t) * 1e3
     rin, rout = thomson_edges(row, t, frac)
+    if profile == "spitzer":
+        R_ch, te = thomson_te(row, t)
     psi = vac.copy()
+    prev = None  # beta0 of the last solved frame, for the warm start
+    beta0s = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5)
     for k in range(len(t)):
         if not (np.isfinite(rin[k]) and rout[k] > rin[k]):
+            prev = None
             continue
         J = shaped_current(R, Z, (rin[k] + rout[k]) / 2, (rout[k] - rin[k]) / 2, kappa, delta,
                            alpha=alpha)
+        kw = {"vertical": vertical}
+        if profile == "spitzer":
+            kw["profile"] = spitzer_profile(R_ch, te[k], R, Z)
+        bs = beta0s
+        if warm and prev is not None:
+            bs = tuple(b for b in beta0s if abs(b - prev) < 0.15)
         if freeb_iter and beta0 < 0:  # negative = match Thomson outer edge per frame
-            psi[k] = solve_matched(vac[k], J, R, Z, ip[k], mc, mc.astype(np.float64), rout[k],
-                                   alpha=alpha, n_iter=freeb_iter)[0]
+            psi[k], _, prev = solve_matched(vac[k], J, R, Z, ip[k], mc, mc.astype(np.float64),
+                                            rout[k], alpha=alpha, beta0s=bs, n_iter=freeb_iter, **kw)
         elif freeb_iter:
             psi[k] = solve(vac[k], J, R, Z, ip[k], mc, mc.astype(np.float64), alpha=alpha,
-                           beta0=beta0, n_iter=freeb_iter)[0]
+                           beta0=beta0, n_iter=freeb_iter, **kw)[0]
         else:
             psi[k] += plasma_psi(J, R, Z, ip[k])
     q95, beta_n = mast_scalars(row, t, rin, rout, kappa, delta, ti_over_te)

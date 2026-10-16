@@ -24,7 +24,10 @@ from .greens import vacuum_psi
 from .mast import SOL_SCALE, machine_mask
 
 # Search range for the shift. A larger zero of F_z means no nearby equilibrium was found; the
-# vessel allows more, but MAST's feedback keeps the axis within ~0.15 m of the midplane.
+# vessel allows more, but controlled MAST plasmas sit near the midplane: the vertical growth rate
+# climbs from 40/s below 0.1 m to 80/s by 0.25 m and diverges past ~0.4 m (Windridge et al.,
+# PPCF 53, 035018 (2011)), and 1-2 cm axis shifts already flip H-mode access (O'Gorman et al.,
+# Nucl. Fusion 54, 082002 (2014)). 0.15 m bounds that range; machine physics, not fitted.
 Z_MAX = 0.15
 Z_GRID = np.linspace(-0.3, 0.3, 61)
 WIN = 5  # frames per running median of z: one bad current estimate should not move a frame
@@ -63,8 +66,9 @@ def vertical_shifts(psi, vac, R, Z, mask) -> np.ndarray:
     return median_filter(z, size=WIN, mode="nearest")
 
 
-def apply(row, d: dict) -> tuple[dict, np.ndarray]:
-    """Shifted copy of a cache entry and the per-frame z. Constant fallbacks are returned as is."""
+def apply(row, d: dict, z: np.ndarray | None = None) -> tuple[dict, np.ndarray]:
+    """Shifted copy of a cache entry and the per-frame z (computed unless given). Constant
+    fallbacks are returned as is."""
     if str(d["method"]) == "const":
         return d, np.zeros(len(d["q95"]))
     R = np.asarray(row["efit_grid_R"], float)
@@ -73,7 +77,8 @@ def apply(row, d: dict) -> tuple[dict, np.ndarray]:
     vac = vacuum_psi(row, R, Z, np.asarray(row["efit_times"], float),
                      {"magnetics_sol_current": s if s > 0 else SOL_SCALE})
     psi = d["psirz"].astype(float)
-    z = vertical_shifts(psi, vac, R, Z, machine_mask(row, R, Z))
+    if z is None:
+        z = vertical_shifts(psi, vac, R, Z, machine_mask(row, R, Z))
     dZ = Z[1] - Z[0]
     out = np.stack([vac[k] + shift(psi[k] - vac[k], (z[k] / dZ, 0), order=3, mode="nearest")
                     for k in range(len(psi))])
@@ -85,6 +90,7 @@ def main() -> int:
     ap.add_argument("src")
     ap.add_argument("dst")
     ap.add_argument("--rows", default="/Volumes/PortableSSD/scratch/fusion-eq-runs/mast/rows")
+    ap.add_argument("--z-from", help="reuse z_shift stored in this shifted cache instead of solving")
     a = ap.parse_args()
     dst = Path(a.dst)
     dst.mkdir(parents=True, exist_ok=True)
@@ -92,7 +98,13 @@ def main() -> int:
         if (dst / f.name).exists():
             continue
         row = pickle.load(open(Path(a.rows) / f"{f.stem[5:]}.pkl", "rb"))
-        d, z = apply(row, dict(np.load(f)))
+        z = None
+        if a.z_from:
+            prev = np.load(Path(a.z_from) / f.name)
+            z = prev["z_shift"] if "z_shift" in prev else None
+            if z is None:  # constant fallback: apply() leaves it unshifted anyway
+                z = np.zeros(len(prev["q95"]))
+        d, z = apply(row, dict(np.load(f)), z)
         tmp = dst / (f.stem + ".tmp.npz")
         np.savez(tmp, **d)
         os.replace(tmp, dst / f.name)

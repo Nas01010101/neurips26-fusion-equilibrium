@@ -34,12 +34,23 @@ def _psi_n(psi, R, Z, mask_coarse, mask_f):
 
 
 def solve(vac, J0, R, Z, ip, mask_coarse, mask_f, alpha=1.0, beta0=0.5, n_iter=12,
-          relax=0.5, symmetric=True):
+          relax=0.5, symmetric=True, profile=None, vertical=False):
     """Return (psi, J) after `n_iter` Picard passes from the initial current J0 (nZ, nR).
+
+    `profile(pn, inside)` replaces the (1 - psi_N)^alpha shape when given. `vertical` replaces
+    the up-down symmetrisation by a rigid shift of each new J to where the coils' vertical force
+    on it vanishes (mast_vertical.force_zero): that is where MAST's radial-field feedback holds
+    the plasma, and it lets the solved shape go up-down asymmetric. A pass with no force zero
+    within reach falls back to symmetrising.
 
     A pass that cannot find a closed LCFS keeps the previous J, so the result is never worse
     defined than the initial guess."""
-    Rg = np.meshgrid(R, Z)[0]
+    Rg, Zg = np.meshgrid(R, Z)
+    if vertical:  # lazy: mast_vertical imports mast, which imports this module
+        from scipy.ndimage import shift
+        from .mast_vertical import Z_MAX, force_zero
+        dZ = Z[1] - Z[0]
+        dvac = np.gradient(vac, dZ, axis=0)
     J = J0 / max(J0.sum(), 1e-30)
     psi = vac + plasma_psi(J, R, Z, ip)
     for _ in range(n_iter):
@@ -47,8 +58,14 @@ def solve(vac, J0, R, Z, ip, mask_coarse, mask_f, alpha=1.0, beta0=0.5, n_iter=1
         if pn is None:
             break
         r0 = float((Rg * inside).sum() / max(inside.sum(), 1))
-        Jn = np.where(inside, (beta0 * Rg / r0 + (1 - beta0) * r0 / Rg) * (1 - pn) ** alpha, 0.0)
-        if symmetric:
+        shape = profile(pn, inside) if profile else (1 - pn) ** alpha
+        Jn = np.where(inside, (beta0 * Rg / r0 + (1 - beta0) * r0 / Rg) * shape, 0.0)
+        z = force_zero(Jn, dvac, dZ) if vertical and Jn.sum() > 0 else np.nan
+        if np.isfinite(z):  # clip the resulting centroid, not the step
+            zc = float((Zg * Jn).sum() / Jn.sum())
+            Jn = np.maximum(shift(Jn, ((np.clip(zc + z, -Z_MAX, Z_MAX) - zc) / dZ, 0), order=1,
+                                  mode="constant"), 0)
+        elif symmetric:
             Jn = (Jn + Jn[::-1]) / 2
         if Jn.sum() <= 0:
             break
@@ -58,16 +75,18 @@ def solve(vac, J0, R, Z, ip, mask_coarse, mask_f, alpha=1.0, beta0=0.5, n_iter=1
 
 
 def solve_matched(vac, J0, R, Z, ip, mask_coarse, mask_f, r_out, alpha=1.0,
-                  beta0s=(0.0, 0.1, 0.2, 0.3, 0.4, 0.5), n_iter=8):
+                  beta0s=(0.0, 0.1, 0.2, 0.3, 0.4, 0.5), n_iter=8, **kw):
     """Solve for each beta0 and keep the one whose LCFS outer midplane radius is nearest the
     Thomson-measured edge `r_out`. beta0 sets the pressure share of J and so the outward radial
-    force; a measured boundary pins it, as magnetics + kinetic constraints do inside EFIT."""
+    force; a measured boundary pins it, as magnetics + kinetic constraints do inside EFIT.
+    Returns (psi, J, beta0); `kw` goes to solve."""
     from lcfs import extract_lcfs
     best, best_err = None, np.inf
     for b in beta0s:
-        psi, J = solve(vac, J0, R, Z, ip, mask_coarse, mask_f, alpha=alpha, beta0=b, n_iter=n_iter)
+        psi, J = solve(vac, J0, R, Z, ip, mask_coarse, mask_f, alpha=alpha, beta0=b, n_iter=n_iter,
+                       **kw)
         c = extract_lcfs(psi, R, Z, "MAST", mask_coarse, mask_f, n_iter=14, n_points=256)
         err = abs(c[:, 0].max() - r_out) if c is not None else np.inf
         if best is None or err < best_err:
-            best, best_err = (psi, J), err
+            best, best_err = (psi, J, b), err
     return best
