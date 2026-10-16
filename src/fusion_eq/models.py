@@ -1,5 +1,6 @@
 """Model registry. A model maps features (N, F) to a flux map (N, 65, 65) plus q95/betaN."""
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Protocol
 
 import numpy as np
@@ -84,6 +85,17 @@ def _pca_ridge64():
     return PcaRidge(n_components=64)
 
 
+class WithContext:
+    """A model trained on features.time_context inputs, called with a shot's raw (T, F) inputs."""
+
+    def __init__(self, base):
+        self.base = base
+
+    def predict(self, X):
+        from .features import time_context
+        return self.base.predict(time_context(X))
+
+
 class Ensemble:
     """Mean of fitted members' predictions; members are already-trained models (e.g. seeds)."""
 
@@ -93,3 +105,47 @@ class Ensemble:
     def predict(self, X):
         ps = [m.predict(X) for m in self.members]
         return Prediction(psi=np.mean([p.psi for p in ps], 0), scalars=np.mean([p.scalars for p in ps], 0))
+
+
+class LinearResidual:
+    """A base model fitted to psi minus a least-squares linear map of the inputs. The coil-driven
+    (vacuum) flux is exactly linear in the coil currents, so the base model is left the plasma's
+    own flux, a smoother target whose PCA modes all describe plasma shape."""
+
+    def __init__(self, base, ridge: float = 1e-3, chunk: int = 20_000, scratch=None):
+        self.base, self.ridge, self.chunk, self.scratch = base, ridge, chunk, scratch
+
+    def _design(self, X):
+        Xs = (np.clip(X.astype(np.float64), self._lo, self._hi) - self._xm) / self._xs
+        return np.hstack([Xs, np.ones((len(X), 1))])
+
+    def linear(self, X):
+        return (self._design(X) @ self._W).reshape(len(X), *self._shape)
+
+    def fit(self, X, psi, scalars):
+        import tempfile
+        self._lo, self._hi = np.nanpercentile(X, [0.1, 99.9], axis=0)
+        Xc = np.clip(X.astype(np.float64), self._lo, self._hi)
+        self._xm, self._xs = Xc.mean(0), Xc.std(0) + 1e-8
+        self._shape = psi.shape[1:]
+        flat = psi.reshape(len(psi), -1)
+        A = self._design(X)
+        # Normal equations in chunks: psi is a memory map too large to copy.
+        G = A.T @ A + self.ridge * len(A) * np.eye(A.shape[1])
+        B = sum(A[i:i + self.chunk].T @ flat[i:i + self.chunk].astype(np.float64)
+                for i in range(0, len(A), self.chunk))
+        self._W = np.linalg.solve(G, B)
+        # Residual on disk (float32), same size as psi, so RAM holds only one chunk at a time.
+        f = tempfile.NamedTemporaryFile(dir=self.scratch, suffix=".npy", delete=False)
+        res = np.lib.format.open_memmap(f.name, "w+", np.float32, flat.shape)
+        for i in range(0, len(A), self.chunk):
+            res[i:i + self.chunk] = flat[i:i + self.chunk] - A[i:i + self.chunk] @ self._W
+        res.flush()
+        self.base.fit(X, res.reshape(psi.shape), scalars)
+        del res
+        Path(f.name).unlink()
+        return self
+
+    def predict(self, X):
+        p = self.base.predict(X)
+        return Prediction(psi=p.psi + self.linear(X), scalars=p.scalars)

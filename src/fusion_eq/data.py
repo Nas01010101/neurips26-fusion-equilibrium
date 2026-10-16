@@ -117,9 +117,12 @@ def build_cache(src_dir: Path, dst_dir: Path, workers: int = 8) -> int:
     return len(files)
 
 
-def load_packed(cache_dir: Path, folds: set[int], stride: int = 1) -> dict:
+def load_packed(cache_dir: Path, folds: set[int], stride: int = 1, ctx: bool = False) -> dict:
     """load_cache, memoized as one .npy per array: thousands of small npz opens cost ~10 min per
-    run on the USB SSD, one sequential read costs seconds. Delete the pack after a feature change."""
+    run on the USB SSD, one sequential read costs seconds. Delete the pack after a feature change.
+
+    ctx=True swaps X for features.time_context(X), built from each shot's full frame sequence
+    before striding (reading only the small X member of each npz)."""
     pack = Path(cache_dir).parent / f"pack-f{''.join(map(str, sorted(folds)))}-s{stride}"
     keys = ("X", "psi", "y", "shot")
     if not all((pack / f"{k}.npy").exists() for k in keys):
@@ -127,8 +130,30 @@ def load_packed(cache_dir: Path, folds: set[int], stride: int = 1) -> dict:
         pack.mkdir(exist_ok=True)
         for k in keys:
             np.save(pack / f"{k}.npy", d[k])
-        return d
-    return {k: np.load(pack / f"{k}.npy") for k in keys}
+    else:
+        d = {k: np.load(pack / f"{k}.npy", mmap_mode="r" if k == "psi" else None) for k in keys}
+    if ctx:
+        if not (pack / "Xctx.npy").exists():
+            np.save(pack / "Xctx.npy", _context_rows(cache_dir, folds, stride, d["X"]))
+        d["X"] = np.load(pack / "Xctx.npy")
+    return d
+
+
+def _context_rows(cache_dir: Path, folds: set[int], stride: int, X_ref: np.ndarray) -> np.ndarray:
+    """time_context rows aligned with load_cache's kept frames. Assumes every kept flux map is
+    finite (true of the cache); the check against X_ref catches a misalignment."""
+    from .features import time_context
+    out = []
+    for f in sorted(Path(cache_dir).glob("*.npz")):
+        if fold_of(f.stem + ".parquet") not in folds:
+            continue
+        X = np.load(f)["X"]
+        ok = np.isfinite(X).all(1) & (np.arange(len(X)) % stride == 0)
+        out.append(time_context(np.nan_to_num(X))[ok])
+    Xc = np.concatenate(out)
+    if len(Xc) != len(X_ref) or not np.array_equal(Xc[:, :X_ref.shape[1]], X_ref):
+        raise ValueError("context rows do not line up with the pack")
+    return Xc
 
 
 def load_cache(cache_dir: Path, folds: set[int], stride: int = 1) -> dict:
@@ -149,6 +174,38 @@ def load_cache(cache_dir: Path, folds: set[int], stride: int = 1) -> dict:
     return {"X": np.concatenate(X), "psi": np.concatenate(psi), "y": np.concatenate(y),
             "shot": np.concatenate(sid)}
 
+
+
+def load_coefs(cache_dir: Path, folds: set[int], stride: int, pca, ctx: bool = False) -> dict:
+    """Inputs, PCA coefficients of the flux map, scalars for every stride-th frame, streamed shot
+    by shot so the 65x65 maps never sit in RAM together (stride 1 is ~1.3M frames, ~22 GB as
+    float32 maps, ~0.3 GB as 64 coefficients). Memoized next to the cache; the PCA basis is part
+    of the key, so a pack is only reused with the basis it was projected on."""
+    import pickle
+    from .features import time_context
+    key = hashlib.md5(pickle.dumps(pca.components_)).hexdigest()[:8]
+    pack = Path(cache_dir).parent / f"coef-f{''.join(map(str, sorted(folds)))}-s{stride}-{key}{'-ctx' if ctx else ''}"
+    keys = ("X", "c", "y")
+    if all((pack / f"{k}.npy").exists() for k in keys):
+        return {k: np.load(pack / f"{k}.npy") for k in keys}
+    X, c, y = [], [], []
+    for f in sorted(Path(cache_dir).glob("*.npz")):
+        if fold_of(f.stem + ".parquet") not in folds:
+            continue
+        z = np.load(f)
+        x, psi = z["X"], z["psi"]
+        ok = np.isfinite(x).all(1) & np.isfinite(psi.reshape(len(psi), -1)).all(1)
+        ok &= np.arange(len(ok)) % stride == 0
+        if ctx:
+            x = time_context(np.nan_to_num(x))
+        X.append(x[ok].astype(np.float32))
+        c.append(pca.transform(psi[ok].reshape(ok.sum(), -1)).astype(np.float32))
+        y.append(z["y"][ok])
+    d = {"X": np.concatenate(X), "c": np.concatenate(c), "y": np.concatenate(y)}
+    pack.mkdir(exist_ok=True)
+    for k in keys:
+        np.save(pack / f"{k}.npy", d[k])
+    return d
 
 if __name__ == "__main__":
     import argparse

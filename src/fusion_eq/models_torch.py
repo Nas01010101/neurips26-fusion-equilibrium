@@ -34,7 +34,14 @@ class PcaMlp:
         self._shape = psi.shape[1:]
         flat = psi.reshape(len(psi), -1)
         self._pca = fit_pca(flat, self.k, seed=self.seed)
-        c = pca_transform(self._pca, flat)
+        return self.fit_coefs(X, pca_transform(self._pca, flat), scalars)
+
+    def fit_coefs(self, X, c, scalars, pca=None, shape=None):
+        """fit() on precomputed PCA coefficients c (N, k): lets every training frame be used
+        when the flux maps themselves (N x 65 x 65) would not fit in RAM."""
+        if pca is not None:
+            self._pca, self._shape = pca, shape
+            torch.manual_seed(self.seed)
         X = self._sel(X).astype(np.float64)  # float32 moments overflow on wide-range inputs
         self._lo, self._hi = np.nanpercentile(X, [0.1, 99.9], axis=0)
         X = np.clip(X, self._lo, self._hi)
@@ -90,6 +97,13 @@ class PcaMlp:
 @register("pca_mlp128")
 def _pca_mlp128():
     return PcaMlp(n_components=128)
+
+
+@register("lin_res_mlp")
+def _lin_res_mlp(**kw):
+    from .models import LinearResidual
+    from .paths import RUNS_DIR
+    return LinearResidual(PcaMlp(**kw), scratch=RUNS_DIR)  # residual memmap off the internal disk
 
 
 __all__ = ["PcaMlp", "REGISTRY"]
