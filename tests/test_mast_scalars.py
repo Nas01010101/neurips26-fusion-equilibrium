@@ -98,3 +98,23 @@ def test_wall_limited_q95_matches_efit_on_limited_demo_frames():
     assert q(0, None) > 1.4 * s["q95"][0]
     for k in (0, 3, 6, 20):
         assert abs(q(k, WALL_R) / s["q95"][k] - 1) < 0.1
+
+
+def test_pick_sol_scale_falls_back_without_thomson(monkeypatch):
+    import fusion_eq.mast as m
+    monkeypatch.setattr(m, "thomson_edges", lambda row, t, frac=0.3: (np.full(len(t), np.nan),) * 2)
+    row = {"efit_grid_R": np.linspace(0.06, 2, 65), "efit_grid_Z": np.linspace(-2, 2, 65),
+           "efit_times": np.arange(10.0)}
+    pytest.importorskip("lcfs", reason="needs the vendored scorer on sys.path")
+    assert m.pick_sol_scale(row) == m.SOL_SCALE
+
+
+def test_mast_batch_rows_filters_to_requested_shots(monkeypatch, tmp_path):
+    import sys
+    import types
+    import fusion_eq.mast_batch as b
+    fake = types.SimpleNamespace(load_dataset=lambda *a, **k: iter([{"k": i} for i in range(6)]))
+    monkeypatch.setitem(sys.modules, "datasets", fake)
+    monkeypatch.setattr(b, "CACHE", tmp_path)
+    (tmp_path / "shot_0003.npz").write_bytes(b"")
+    assert [i for i, _ in b.rows(0, {1, 3, 4})] == [1, 4]

@@ -16,6 +16,8 @@ from .qprofile import q_at, vacuum_f
 # half the column. One row per full current overstates the solenoid flux about 2x: demo-shot
 # psi R2 0.79 at 1.0, 0.993 at 0.5.
 SOL_SCALE = 0.5
+# Candidates for the per-shot fit to the Thomson inner edge (pick_sol_scale).
+SOL_SCALES = (0.5, 0.75, 1.0)
 N_TF = 24  # MAST TF centre-rod limbs, one turn each (assumed from MAST design papers, not shipped)
 # Share of MAST stored energy carried by NBI fast ions, which Thomson cannot see: ~35% per
 # Cecconello et al., Nucl. Fusion 59 016006 (2019), citing TRANSP/NUBEAM. Literature, not fitted.
@@ -177,7 +179,42 @@ def finalize(row, psi, vac, q95_shape, win: int = SMOOTH) -> tuple[np.ndarray, n
     return psi, smooth_frames(q95, win)
 
 
-def predict_mast(row, sol_scale: float = SOL_SCALE, kappa: float = 1.8, delta: float = 0.4,
+def pick_sol_scale(row, scales=SOL_SCALES, n_frames: int = 3, kappa: float = 1.8,
+                   delta: float = 0.4) -> float:
+    """Per-shot solenoid scale whose solved LCFS inner midplane radius best matches the Thomson
+    inner density edge, on `n_frames` frames spread over the shot.
+
+    The organizers leave the 2x solenoid factor open (Data page), and on shots with P2 off the
+    0.5 scale puts the LCFS on the centre column 9-20 cm inside the Thomson edge, while the
+    full scale lands within 3 cm. The outer edge is matched separately through beta0
+    (solve_matched), so the inner edge is the remaining free constraint. Uses MAST inputs only."""
+    from lcfs import extract_lcfs
+    from .paths import STARTER
+    mc = np.load(STARTER / "fusion_scoring" / "masks" / "mast_envelope.npz")["mask_coarse"].astype(bool)
+    R = np.asarray(row["efit_grid_R"], float)
+    Z = np.asarray(row["efit_grid_Z"], float)
+    t = np.asarray(row["efit_times"], float)
+    t = t[np.linspace(len(t) // 4, 3 * len(t) // 4, n_frames).astype(int)]
+    rin, rout = thomson_edges(row, t)
+    ok = np.isfinite(rin) & (rout > rin)
+    if not ok.any():
+        return SOL_SCALE
+    t, rin, rout = t[ok], rin[ok], rout[ok]
+    ip = interp_signal(row["magnetics_time"], row["magnetics_plasma_current"], t) * 1e3
+    err = []
+    for s in scales:
+        vac = vacuum_psi(row, R, Z, t, {"magnetics_sol_current": s})
+        e = []
+        for k in range(len(t)):
+            J = shaped_current(R, Z, (rin[k] + rout[k]) / 2, (rout[k] - rin[k]) / 2, kappa, delta)
+            psi = solve_matched(vac[k], J, R, Z, ip[k], mc, mc.astype(np.float64), rout[k])[0]
+            c = extract_lcfs(psi, R, Z, "MAST", mc, mc.astype(np.float64), n_iter=14, n_points=256)
+            e.append(abs(c[:, 0].min() - rin[k]) if c is not None else np.inf)
+        err.append(np.mean(e))
+    return float(scales[int(np.argmin(err))])
+
+
+def predict_mast(row, sol_scale: float | str = SOL_SCALE, kappa: float = 1.8, delta: float = 0.4,
                  alpha: float = 1.0, frac: float = 0.3, ti_over_te: float = 1.0,
                  q_from_psi: bool = True, freeb_iter: int = 8, beta0: float = -1.0,
                  fast_ion_frac: float = FAST_ION_FRAC) -> dict:
@@ -187,6 +224,8 @@ def predict_mast(row, sol_scale: float = SOL_SCALE, kappa: float = 1.8, delta: f
     R = np.asarray(row["efit_grid_R"], float)
     Z = np.asarray(row["efit_grid_Z"], float)
     t = np.asarray(row["efit_times"], float)
+    if sol_scale == "thomson":
+        sol_scale = pick_sol_scale(row, kappa=kappa, delta=delta)
     vac = vacuum_psi(row, R, Z, t, {"magnetics_sol_current": sol_scale})
     ip = interp_signal(row["magnetics_time"], row["magnetics_plasma_current"], t) * 1e3
     rin, rout = thomson_edges(row, t, frac)
@@ -209,4 +248,4 @@ def predict_mast(row, sol_scale: float = SOL_SCALE, kappa: float = 1.8, delta: f
     if q_from_psi:
         psi, q95 = finalize(row, psi, vac, q95)
     return {"psirz": psi.astype(np.float32), "q95": q95.astype(np.float32),
-            "betaN": beta_n.astype(np.float32)}
+            "betaN": beta_n.astype(np.float32), "sol_scale": float(sol_scale)}
