@@ -29,6 +29,10 @@ WALL_R = 0.20
 # shorter than the current-diffusion time, so frame-to-frame scatter in the solve is noise.
 # Chosen on the demo shots (S 0.719 -> 0.746 for 5; 7 trades triangularity for volume).
 SMOOTH = 5
+# Frames per running mean of betaN. Thomson pressure scatters far more frame to frame than the
+# stored energy can change (confinement time tens of ms); 9 frames = 45 ms. Demo betaN R2
+# 0.39 -> 0.55, rising on all 3 shots (wider windows rise further but approach a shot mean).
+BETA_SMOOTH = 9
 
 
 def _median5(x):
@@ -201,7 +205,7 @@ def predict_mast(row, sol_scale: float = SOL_SCALE, kappa: float = 1.8, delta: f
         else:
             psi[k] += plasma_psi(J, R, Z, ip[k])
     q95, beta_n = mast_scalars(row, t, rin, rout, kappa, delta, ti_over_te)
-    beta_n = total_beta_n(beta_n, fast_ion_frac)
+    beta_n = smooth_frames(total_beta_n(beta_n, fast_ion_frac), BETA_SMOOTH)
     if q_from_psi:
         psi, q95 = finalize(row, psi, vac, q95)
     return {"psirz": psi.astype(np.float32), "q95": q95.astype(np.float32),

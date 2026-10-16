@@ -45,7 +45,8 @@ No MAST label trains any model, but three scalars were selected by looking at th
 - `mast.SOL_SCALE = 0.5`: solenoid current per conductor row (two parallel windings). A per-coil-group fit on demo ψ gave 0.43; 0.5 was kept as the physical reading. Demo R²ψ 0.79 → 0.993.
 - `mast.WALL_R = 0.20` m: inboard limiter radius for q95. Selected on the demo shots' true ψ (q_at vs EFIT q95 R² 0.997), not on predictions.
 - `mast.SMOOTH = 5`: frames per running mean of the plasma flux and q95.
+- `mast.BETA_SMOOTH = 9`: frames per running mean of βN (demo βN R² 0.39 → 0.55).
 
 ## Validation
 - DIII-D, 200 held-out train shots, official scorer: S = 0.9915 (`ens3-w2048` in `$RUNS/results.jsonl`).
-- MAST, 3 public demo shots: S = 0.814 (R²ψ 0.995, R² q95/βN 0.583, 1−D_LCFS 0.924, consistency 0.434). Before the three constants above: 0.579. These shots informed the constants, so 0.814 is not a held-out estimate.
+- MAST, 3 public demo shots: S = 0.826 (R²ψ 0.995, R² q95/βN 0.664, 1−D_LCFS 0.924, consistency 0.434). Before the three constants above: 0.579. These shots informed the constants, so 0.826 is not a held-out estimate.

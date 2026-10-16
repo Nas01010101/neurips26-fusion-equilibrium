@@ -67,7 +67,7 @@ def _work(args):
     tmp = p.with_suffix(".tmp.npz")
     np.savez(tmp, psirz=out["psirz"].astype(np.float32), q95=out["q95"].astype(np.float32),
              betaN=out["betaN"].astype(np.float32), method=how,
-             **({} if how == "const" else {"beta": np.array("total"), "post": np.array("v1")}))  # see mast_rescale, mast_post
+             **({} if how == "const" else {"beta": np.array("total"), "post": np.array("v2")}))  # see mast_rescale, mast_post
     os.replace(tmp, p)  # atomic: a killed run never leaves a half-written shot behind
     return i, how, time.time() - t0
 

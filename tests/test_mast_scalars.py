@@ -58,10 +58,21 @@ def test_mast_post_skips_converted_and_constant(tmp_path):
     from fusion_eq.mast_post import convert
     base = dict(psirz=np.zeros((3, 2, 2), np.float32), q95=np.full(3, 7.0, np.float32),
                 betaN=np.ones(3, np.float32))
-    np.savez(tmp_path / "a.npz", **base, method="freeb", post="v1")
+    np.savez(tmp_path / "a.npz", **base, method="freeb", post="v2")
     np.savez(tmp_path / "b.npz", **base, method="const")
     assert convert(None, tmp_path / "a.npz") == "current"
     assert convert(None, tmp_path / "b.npz") == "const"
+
+
+def test_mast_post_v1_gets_beta_smoothing_once(tmp_path):
+    from fusion_eq.mast_post import convert
+    beta = np.ones(9, np.float32)
+    beta[4] = 10.0
+    np.savez(tmp_path / "a.npz", psirz=np.zeros((9, 2, 2), np.float32), q95=np.full(9, 7.0, np.float32),
+             betaN=beta, method="freeb", post="v1")
+    assert convert(None, tmp_path / "a.npz") == "beta"
+    assert convert(None, tmp_path / "a.npz") == "current"
+    assert np.allclose(np.load(tmp_path / "a.npz")["betaN"], 2.0)
 
 
 def test_wall_limited_q95_matches_efit_on_limited_demo_frames():

@@ -2,8 +2,9 @@
 before finalize existed, without re-solving any equilibrium.
 
 The vacuum flux is recomputed from the coil currents, so only the plasma part is smoothed.
-Converted files carry `post="v1"`; files that mast_batch writes now are born with it, so nothing
-is smoothed twice. Constant fallbacks are left alone.
+Converted files carry `post="v2"`; files that mast_batch writes now are born with it, so nothing
+is smoothed twice. v1 files (psi and q95 already finalized) only get the betaN running mean.
+Constant fallbacks are left alone.
 
     PYTHONPATH=src uv run python -m fusion_eq.mast_post [--max-shots N]
 """
@@ -13,26 +14,35 @@ import os
 import numpy as np
 
 from .greens import vacuum_psi
-from .mast import SOL_SCALE, finalize
+from .mast import BETA_SMOOTH, SOL_SCALE, finalize, smooth_frames
 from .mast_batch import cache_path
 
-POST = "v1"
+POST = "v2"
 
 
 def convert(row, path) -> str:
     d = dict(np.load(path))
-    if "post" in d:
+    if str(d.get("post")) == POST:
         return "current"
     if str(d["method"]) == "const":
         return "const"
+    d["betaN"] = smooth_frames(d["betaN"].astype(float), BETA_SMOOTH).astype(np.float32)
+    if "post" in d:  # v1: psi and q95 already finalized
+        d["post"] = np.array(POST)
+        _save(d, path)
+        return "beta"
     vac = vacuum_psi(row, np.asarray(row["efit_grid_R"], float), np.asarray(row["efit_grid_Z"], float),
                      np.asarray(row["efit_times"], float), {"magnetics_sol_current": SOL_SCALE})
     psi, q95 = finalize(row, d["psirz"].astype(float), vac, d["q95"].astype(float))
     d.update(psirz=psi.astype(np.float32), q95=q95.astype(np.float32), post=np.array(POST))
+    _save(d, path)
+    return "converted"
+
+
+def _save(d: dict, path) -> None:
     tmp = path.with_suffix(".tmp.npz")
     np.savez(tmp, **d)
     os.replace(tmp, path)  # atomic, as in mast_batch
-    return "converted"
 
 
 def main() -> int:
