@@ -65,6 +65,22 @@ def thomson_edges(row, times, frac: float = 0.3):
     return np.interp(times, tt[good], rin[good]), np.interp(times, tt[good], rout[good])
 
 
+def machine_mask(row, R, Z, clearance: float = 0.05) -> np.ndarray:
+    """(nZ, nR) bool: grid nodes inside the convex hull of the shipped coil conductors, outboard
+    of the solenoid and more than `clearance` from any conductor. Built from machine geometry
+    only; it replaces the scorer's label-derived envelope wherever the solver searches for the
+    axis and LCFS (Rule 3 keeps that envelope inside the scoring derivation)."""
+    from scipy.spatial import ConvexHull, Delaunay
+    cR, cZ = np.asarray(row["coil_R"], float), np.asarray(row["coil_Z"], float)
+    sol = np.asarray(row["coil_input_column"]) == "magnetics_sol_current"
+    Rg, Zg = np.meshgrid(R, Z)
+    q = np.c_[Rg.ravel(), Zg.ravel()]
+    pts = np.c_[cR, cZ]
+    inside = Delaunay(pts[ConvexHull(pts).vertices]).find_simplex(q) >= 0
+    gap = np.min(np.hypot(q[:, :1] - cR[None], q[:, 1:] - cZ[None]), axis=1)
+    return (inside & (gap > clearance) & (q[:, 0] > cR[sol].max())).reshape(Rg.shape)
+
+
 def shaped_current(R, Z, r0, a, kappa, delta, z0=0.0, alpha=1.0):
     """J (nZ, nR) ∝ (1 - rho^2)^alpha inside a D-shaped boundary.
 
@@ -165,10 +181,9 @@ def smooth_frames(x, win: int = SMOOTH):
 def finalize(row, psi, vac, q95_shape, win: int = SMOOTH) -> tuple[np.ndarray, np.ndarray]:
     """Time-smooth the plasma part of psi, then measure q95 on it (falling back to the shape
     estimate where no surface is found). Shared by predict_mast and mast_post."""
-    from .paths import STARTER
-    mc = np.load(STARTER / "fusion_scoring" / "masks" / "mast_envelope.npz")["mask_coarse"].astype(bool)
     R = np.asarray(row["efit_grid_R"], float)
     Z = np.asarray(row["efit_grid_Z"], float)
+    mc = machine_mask(row, R, Z)
     t = np.asarray(row["efit_times"], float)
     psi = vac + smooth_frames(np.asarray(psi, float) - vac, win)
     f = vacuum_f(interp_signal(row["magnetics_time"], row["magnetics_tf_current"], t) * 1e3, N_TF)
@@ -189,8 +204,6 @@ def pick_sol_scale(row, scales=SOL_SCALES, n_frames: int = 3, kappa: float = 1.8
     full scale lands within 3 cm. The outer edge is matched separately through beta0
     (solve_matched), so the inner edge is the remaining free constraint. Uses MAST inputs only."""
     from lcfs import extract_lcfs
-    from .paths import STARTER
-    mc = np.load(STARTER / "fusion_scoring" / "masks" / "mast_envelope.npz")["mask_coarse"].astype(bool)
     R = np.asarray(row["efit_grid_R"], float)
     Z = np.asarray(row["efit_grid_Z"], float)
     t = np.asarray(row["efit_times"], float)
@@ -200,6 +213,7 @@ def pick_sol_scale(row, scales=SOL_SCALES, n_frames: int = 3, kappa: float = 1.8
     if not ok.any():
         return SOL_SCALE
     t, rin, rout = t[ok], rin[ok], rout[ok]
+    mc = machine_mask(row, R, Z)
     ip = interp_signal(row["magnetics_time"], row["magnetics_plasma_current"], t) * 1e3
     err = []
     for s in scales:
@@ -218,11 +232,9 @@ def predict_mast(row, sol_scale: float | str = SOL_SCALE, kappa: float = 1.8, de
                  alpha: float = 1.0, frac: float = 0.3, ti_over_te: float = 1.0,
                  q_from_psi: bool = True, freeb_iter: int = 8, beta0: float = -1.0,
                  fast_ion_frac: float = FAST_ION_FRAC) -> dict:
-    from .paths import STARTER
-    mask = np.load(STARTER / "fusion_scoring" / "masks" / "mast_envelope.npz")
-    mc = mask["mask_coarse"].astype(bool)
     R = np.asarray(row["efit_grid_R"], float)
     Z = np.asarray(row["efit_grid_Z"], float)
+    mc = machine_mask(row, R, Z)
     t = np.asarray(row["efit_times"], float)
     if sol_scale == "thomson":
         sol_scale = pick_sol_scale(row, kappa=kappa, delta=delta)
