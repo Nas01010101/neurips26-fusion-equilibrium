@@ -21,7 +21,7 @@ make data-train        # DIII-D train parquet
 make cache             # 7041 shots -> per-shot feature npz
 make train             # 3 ensemble members, seeds 0/1/2
 make weights           # sha256 check of the pickles
-make mast              # MAST physics predictions, resumable per shot
+make mast              # MAST physics predictions, resumable per shot, then mast_post
 make submission ARGS="--repo <user>/fusion-eq-predictions"   # build, validate, push, pointer zip
 ```
 `make submission` without `ARGS` builds and validates only. The pointer zip holds a read-only HF token; it is never committed.
@@ -40,6 +40,13 @@ Retraining on MPS or CUDA is not bit-identical (non-deterministic kernels); the 
 - `mast.N_TF = 24`: MAST TF centre-rod limbs, from MAST design papers.
 - Shape priors (elongation 1.8, triangularity 0.4) are generic spherical-tokamak values.
 
+## Constants chosen on the 3 MAST demo shots (disclosed)
+No MAST label trains any model, but three scalars were selected by looking at the demo shots' EFIT labels:
+- `mast.SOL_SCALE = 0.5`: solenoid current per conductor row (two parallel windings). A per-coil-group fit on demo ψ gave 0.43; 0.5 was kept as the physical reading. Demo R²ψ 0.79 → 0.993.
+- `mast.WALL_R = 0.20` m: inboard limiter radius for q95. Selected on the demo shots' true ψ (q_at vs EFIT q95 R² 0.997), not on predictions.
+- `mast.SMOOTH = 5`: frames per running mean of the plasma flux and q95.
+- `mast.BETA_SMOOTH = 9`: frames per running mean of βN (demo βN R² 0.39 → 0.55).
+
 ## Validation
 - DIII-D, 200 held-out train shots, official scorer: S = 0.9915 (`ens3-w2048` in `$RUNS/results.jsonl`).
-- MAST, 3 public demo shots (scoring only, no tuning): S = 0.579.
+- MAST, 3 public demo shots: S = 0.826 (R²ψ 0.995, R² q95/βN 0.664, 1−D_LCFS 0.924, consistency 0.434). Before the three constants above: 0.579. These shots informed the constants, so 0.826 is not a held-out estimate.

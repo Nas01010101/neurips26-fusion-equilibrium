@@ -11,11 +11,28 @@ from .greens import MU0, interp_signal, plasma_psi, vacuum_psi
 from .freeb import solve, solve_matched
 from .qprofile import q_at, vacuum_f
 
+# The solenoid column is plain kA with no trustworthy turn count (starter fusion_data_provider.py
+# units note), and its 656 conductor rows are read as two parallel windings, so each row carries
+# half the column. One row per full current overstates the solenoid flux about 2x: demo-shot
+# psi R2 0.79 at 1.0, 0.993 at 0.5.
+SOL_SCALE = 0.5
 N_TF = 24  # MAST TF centre-rod limbs, one turn each (assumed from MAST design papers, not shipped)
 # Share of MAST stored energy carried by NBI fast ions, which Thomson cannot see: ~35% per
 # Cecconello et al., Nucl. Fusion 59 016006 (2019), citing TRANSP/NUBEAM. Literature, not fitted.
 FAST_ION_FRAC = 0.35
 E_CHARGE = 1.602176634e-19
+# Inboard limiter (centre-column armour) radius. Chosen on the 3 demo shots' TRUE psi, where it
+# makes q_at reproduce EFIT q95 (R2 0.997; 0.98 at 0.19 m, 0.95 at 0.21 m, -0.44 without a wall),
+# so it is fixed by the machine, not by our predictions.
+WALL_R = 0.20
+# Frames per running mean of the plasma flux and q95. Successive EFIT frames are 5 ms apart, much
+# shorter than the current-diffusion time, so frame-to-frame scatter in the solve is noise.
+# Chosen on the demo shots (S 0.719 -> 0.746 for 5; 7 trades triangularity for volume).
+SMOOTH = 5
+# Frames per running mean of betaN. Thomson pressure scatters far more frame to frame than the
+# stored energy can change (confinement time tens of ms); 9 frames = 45 ms. Demo betaN R2
+# 0.39 -> 0.55, rising on all 3 shots (wider windows rise further but approach a shot mean).
+BETA_SMOOTH = 9
 
 
 def _median5(x):
@@ -134,7 +151,33 @@ def robust_series(x, lo, hi, win: int = 5):
     return np.interp(np.arange(len(x)), np.flatnonzero(ok), med[ok])
 
 
-def predict_mast(row, sol_scale: float = 1.0, kappa: float = 1.8, delta: float = 0.4,
+def smooth_frames(x, win: int = SMOOTH):
+    """Centred running mean along axis 0, edge frames repeated."""
+    if win <= 1:
+        return x
+    h = win // 2
+    pad = np.concatenate([x[:1].repeat(h, 0), x, x[-1:].repeat(h, 0)])
+    return np.mean([pad[k:k + len(x)] for k in range(win)], axis=0)
+
+
+def finalize(row, psi, vac, q95_shape, win: int = SMOOTH) -> tuple[np.ndarray, np.ndarray]:
+    """Time-smooth the plasma part of psi, then measure q95 on it (falling back to the shape
+    estimate where no surface is found). Shared by predict_mast and mast_post."""
+    from .paths import STARTER
+    mc = np.load(STARTER / "fusion_scoring" / "masks" / "mast_envelope.npz")["mask_coarse"].astype(bool)
+    R = np.asarray(row["efit_grid_R"], float)
+    Z = np.asarray(row["efit_grid_Z"], float)
+    t = np.asarray(row["efit_times"], float)
+    psi = vac + smooth_frames(np.asarray(psi, float) - vac, win)
+    f = vacuum_f(interp_signal(row["magnetics_time"], row["magnetics_tf_current"], t) * 1e3, N_TF)
+    qn = robust_series(np.array([q_at(psi[k], R, Z, f[k], "MAST", mask_coarse=mc,
+                                      mask_f=mc.astype(np.float64), wall_r=WALL_R)
+                                 for k in range(len(t))]), 2, 25)
+    q95 = np.where(np.isfinite(qn), qn, q95_shape)
+    return psi, smooth_frames(q95, win)
+
+
+def predict_mast(row, sol_scale: float = SOL_SCALE, kappa: float = 1.8, delta: float = 0.4,
                  alpha: float = 1.0, frac: float = 0.3, ti_over_te: float = 1.0,
                  q_from_psi: bool = True, freeb_iter: int = 8, beta0: float = -1.0,
                  fast_ion_frac: float = FAST_ION_FRAC) -> dict:
@@ -162,12 +205,8 @@ def predict_mast(row, sol_scale: float = 1.0, kappa: float = 1.8, delta: float =
         else:
             psi[k] += plasma_psi(J, R, Z, ip[k])
     q95, beta_n = mast_scalars(row, t, rin, rout, kappa, delta, ti_over_te)
-    beta_n = total_beta_n(beta_n, fast_ion_frac)
+    beta_n = smooth_frames(total_beta_n(beta_n, fast_ion_frac), BETA_SMOOTH)
     if q_from_psi:
-        # Measured on the 3 demo shots' true psi: matches EFIT q95 within 0.1 past the first frame.
-        f = vacuum_f(interp_signal(row["magnetics_time"], row["magnetics_tf_current"], t) * 1e3, N_TF)
-        qn = robust_series(np.array([q_at(psi[k], R, Z, f[k], "MAST", mask_coarse=mc,
-                                          mask_f=mc.astype(np.float64)) for k in range(len(t))]), 2, 25)
-        q95 = np.where(np.isfinite(qn), qn, q95)
+        psi, q95 = finalize(row, psi, vac, q95)
     return {"psirz": psi.astype(np.float32), "q95": q95.astype(np.float32),
             "betaN": beta_n.astype(np.float32)}
