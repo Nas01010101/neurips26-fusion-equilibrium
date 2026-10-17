@@ -14,8 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .data import fold_of, load_packed
-from .models import REGISTRY, Ensemble
+from .data import fold_of, load_coefs, load_packed
+from .models import REGISTRY, Ensemble, WithContext
 from .paths import RUNS_DIR, use_starter
 
 try:  # registers the torch models; the sklearn ones work without it
@@ -94,11 +94,36 @@ def score(shots, refs, preds) -> dict:
     return ls.finalize_machine(acc, st)
 
 
+def _train_coefs(a, t0):
+    """Train on PCA coefficients of every a.stride-th frame; the basis comes from the stride-6
+    pack's frames (a subsample of 40k maps, as fit_pca uses anyway)."""
+    from .models import fit_pca
+    folds = {int(f) for f in a.train_folds.split(",")}
+    psi = load_packed(a.cache, folds, stride=6)["psi"]
+    model = REGISTRY[a.model](**a.kw)
+    pca = fit_pca(psi.reshape(len(psi), -1), model.k, seed=0)
+    shape = psi.shape[1:]
+    del psi
+    tr = load_coefs(a.cache, folds, a.stride, pca, ctx=a.ctx)
+    print(f"train frames {len(tr['X'])} ({time.time()-t0:.0f}s)", flush=True)
+    model.fit_coefs(tr["X"], tr["c"], tr["y"], pca=pca, shape=shape)
+    del tr
+    model = WithContext(model) if a.ctx else model
+    if a.save:
+        (RUNS_DIR / "models").mkdir(exist_ok=True)
+        (RUNS_DIR / "models" / f"{a.tag or a.model}.pkl").write_bytes(pickle.dumps(model))
+    return model
+
+
 def _train(a, t0):
-    tr = load_packed(a.cache, {int(f) for f in a.train_folds.split(",")}, stride=a.stride)
+    if a.coefs:
+        return _train_coefs(a, t0)
+    tr = load_packed(a.cache, {int(f) for f in a.train_folds.split(",")}, stride=a.stride, ctx=a.ctx)
     print(f"train frames {len(tr['X'])} from {len(np.unique(tr['shot']))} shots ({time.time()-t0:.0f}s)")
     model = REGISTRY[a.model](**a.kw).fit(tr["X"], tr["psi"], tr["y"])
     del tr
+    if a.ctx:
+        model = WithContext(model)
     print(f"fit done ({time.time()-t0:.0f}s)")
     if a.save:
         (RUNS_DIR / "models").mkdir(exist_ok=True)
@@ -114,6 +139,8 @@ def main() -> int:
     ap.add_argument("--train-folds", default="0,1,2,3")
     ap.add_argument("--cache", type=Path, default=RUNS_DIR / "cache")
     ap.add_argument("--kw", type=json.loads, default={}, help='model kwargs, e.g. {"n_components": 128}')
+    ap.add_argument("--coefs", action="store_true", help="stream PCA coefficients (any stride fits in RAM)")
+    ap.add_argument("--ctx", action="store_true", help="train on features.time_context inputs")
     ap.add_argument("--tag", default="")
     ap.add_argument("--save", action="store_true", help="pickle the fitted model to RUNS_DIR/models")
     ap.add_argument("--ensemble", default="", help="comma-separated saved tags to average; skips training")

@@ -72,29 +72,37 @@ def test_mast_post_v1_gets_beta_smoothing_once(tmp_path):
              betaN=beta, method="freeb", post="v1")
     assert convert(None, tmp_path / "a.npz") == "beta"
     assert convert(None, tmp_path / "a.npz") == "current"
-    assert np.allclose(np.load(tmp_path / "a.npz")["betaN"], 2.0)
+    from fusion_eq.mast import BETA_SMOOTH, smooth_frames
+    assert np.allclose(np.load(tmp_path / "a.npz")["betaN"], smooth_frames(beta.astype(float), BETA_SMOOTH))
 
 
-def test_wall_limited_q95_matches_efit_on_limited_demo_frames():
-    # Shot 28350 leans on the centre column for its first frames: the scorer's LCFS then passes
-    # inside the column and q95 comes out ~1.5x EFIT unless the boundary is capped at the wall.
-    try:
-        from fusion_eq.mast_score import load_demo
-        s = load_demo("mast_shot_28350")
-    except Exception as e:  # demo data not downloaded
-        pytest.skip(str(e))
-    from fusion_eq.greens import interp_signal
-    from fusion_eq.mast import N_TF, WALL_R
-    from fusion_eq.paths import STARTER, use_starter
-    from fusion_eq.qprofile import q_at, vacuum_f
-    use_starter()
-    import local_score  # noqa: F401
-    m = np.load(STARTER / "fusion_scoring" / "masks" / "mast_envelope.npz")
-    mc = m["mask_coarse"].astype(bool)
-    t = np.asarray(s["row"]["efit_times"], float)
-    f = vacuum_f(interp_signal(s["row"]["magnetics_time"], s["row"]["magnetics_tf_current"], t) * 1e3, N_TF)
-    args = (m["grid_R"], m["grid_Z"])
-    q = lambda k, w: q_at(s["psi"][k], *args, f[k], "MAST", mask_coarse=mc, mask_f=mc.astype(float), wall_r=w)
-    assert q(0, None) > 1.4 * s["q95"][0]
-    for k in (0, 3, 6, 20):
-        assert abs(q(k, WALL_R) / s["q95"][k] - 1) < 0.1
+def test_machine_mask_covers_plasma_region_and_excludes_conductors():
+    from fusion_eq.mast import machine_mask
+    R, Z = np.linspace(0.06, 2, 65), np.linspace(-2, 2, 65)
+    cR = np.r_[np.full(20, 0.14), 0.5, 0.5, 1.1, 1.1, 1.65, 1.65]
+    cZ = np.r_[np.linspace(-1.5, 1.5, 20), 1.75, -1.75, 1.1, -1.1, 0.5, -0.5]
+    row = {"coil_R": cR, "coil_Z": cZ, "coil_input_column": np.r_[["magnetics_sol_current"] * 20, ["p"] * 6]}
+    m = machine_mask(row, R, Z)
+    at = lambda r, z: m[np.argmin(abs(Z - z)), np.argmin(abs(R - r))]
+    assert at(0.9, 0.0) and at(1.4, 0.3)
+    assert not at(0.1, 0.0) and not at(1.9, 0.0) and not at(1.1, 1.1)
+
+
+def test_pick_sol_scale_falls_back_without_thomson(monkeypatch):
+    import fusion_eq.mast as m
+    monkeypatch.setattr(m, "thomson_edges", lambda row, t, frac=0.3: (np.full(len(t), np.nan),) * 2)
+    row = {"efit_grid_R": np.linspace(0.06, 2, 65), "efit_grid_Z": np.linspace(-2, 2, 65),
+           "efit_times": np.arange(10.0)}
+    pytest.importorskip("lcfs", reason="needs the vendored scorer on sys.path")
+    assert m.pick_sol_scale(row) == m.SOL_SCALE
+
+
+def test_mast_batch_rows_filters_to_requested_shots(monkeypatch, tmp_path):
+    import sys
+    import types
+    import fusion_eq.mast_batch as b
+    fake = types.SimpleNamespace(load_dataset=lambda *a, **k: iter([{"k": i} for i in range(6)]))
+    monkeypatch.setitem(sys.modules, "datasets", fake)
+    monkeypatch.setattr(b, "CACHE", tmp_path)
+    (tmp_path / "shot_0003.npz").write_bytes(b"")
+    assert [i for i, _ in b.rows(0, {1, 3, 4})] == [1, 4]

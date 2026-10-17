@@ -40,13 +40,16 @@ Retraining on MPS or CUDA is not bit-identical (non-deterministic kernels); the 
 - `mast.N_TF = 24`: MAST TF centre-rod limbs, from MAST design papers.
 - Shape priors (elongation 1.8, triangularity 0.4) are generic spherical-tokamak values.
 
-## Constants chosen on the 3 MAST demo shots (disclosed)
-No MAST label trains any model, but three scalars were selected by looking at the demo shots' EFIT labels:
-- `mast.SOL_SCALE = 0.5`: solenoid current per conductor row (two parallel windings). A per-coil-group fit on demo ψ gave 0.43; 0.5 was kept as the physical reading. Demo R²ψ 0.79 → 0.993.
-- `mast.WALL_R = 0.20` m: inboard limiter radius for q95. Selected on the demo shots' true ψ (q_at vs EFIT q95 R² 0.997), not on predictions.
-- `mast.SMOOTH = 5`: frames per running mean of the plasma flux and q95.
-- `mast.BETA_SMOOTH = 9`: frames per running mean of βN (demo βN R² 0.39 → 0.55).
+## MAST constants (no MAST label; source per constant)
+- `mast.SOL_SCALE = 0.5`, `mast.SOL_SCALES = (0.5, 0.75, 1.0)`: the shipped solenoid signal reads 2x the FAIR-MAST level-2 pf_active current, an open convention question on the challenge Data page. `pick_sol_scale` picks one of the three per shot by matching the solved inner LCFS edge to the Thomson inner edge (MAST inputs only).
+- `mast.WALL_R = 0.20` m: inner edge of MAST's design plasma, R - a = 0.85 - 0.65 m (Sykes et al., IAEA FEC 2000, OV4/1); centre-column armour per Edlington et al., Rev. Sci. Instrum. 72, 421 (2001).
+- `mast.SMOOTH = 5`, `mast.BETA_SMOOTH`: running-mean windows chosen by leave-one-out CV on the Thomson pulse time base of all 1206 public test shots (`python -m fusion_eq.mast_smooth_cv`); the edge series sets SMOOTH, the volume-averaged pressure sets BETA_SMOOTH, each at the window with the lowest median over shots of per-shot normalised error (5 pulses = 21 ms -> 5 EFIT frames for both). Label-free test-time adaptation under rule 3. `python -m fusion_eq.mast_beta CACHE` rewrites betaN on a solved cache after a BETA_SMOOTH change (betaN does not depend on the solved flux).
+- `mast_vertical.Z_MAX = 0.15` m: search bound for the force-balance vertical shift, from MAST vertical-stability physics (Windridge et al., PPCF 53, 035018 (2011); O'Gorman et al., Nucl. Fusion 54, 082002 (2014)).
+- Solver options (`--profile spitzer`, `--vertical`, `--warm`) are pipeline variants, not fitted constants.
+
+## Use of Development-phase scores (disclosed)
+Development-phase scores of our own genuine candidate submissions were used to compare and select MAST pipeline variants (rule 3, feedback clause). Two Development submissions (P1, P2 in `SUBMISSIONS.md`) rescaled our predictions to measure label statistics; under the 2026-10-04 probe clause those statistics count as MAST data, so no constant fitted to them, and nothing derived from them, enters any Final submission. The fitting code was removed from the repository. Early in Development (through c3) MAST variants were also scored on the starter's 3 labelled demo shots; the scorer (`mast_score.py`) was removed. The four constants first picked on them now come from the sources above: SMOOTH (5, unchanged) and BETA_SMOOTH (9 -> 5) from the CV; WALL_R (0.20 m) from MAST design geometry; SOL_SCALE (0.5) from the signal convention, now one of three per-shot choices made against Thomson.
 
 ## Validation
 - DIII-D, 200 held-out train shots, official scorer: S = 0.9915 (`ens3-w2048` in `$RUNS/results.jsonl`).
-- MAST, 3 public demo shots: S = 0.826 (R²ψ 0.995, R² q95/βN 0.664, 1−D_LCFS 0.924, consistency 0.434). Before the three constants above: 0.579. These shots informed the constants, so 0.826 is not a held-out estimate.
+- MAST: no offline score. The demo shots are used for format inspection only; MAST is judged by the platform.

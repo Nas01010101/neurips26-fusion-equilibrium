@@ -38,3 +38,17 @@ def shape_normalize(psi: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray
     mean = flat.mean(axis=1)
     rng = np.maximum(np.ptp(flat, axis=1), 1e-12)
     return ((flat - mean[:, None]) / rng[:, None]).reshape(psi.shape), mean, rng
+
+
+CONTEXT_LAGS = (-2, -1, 1, 2)
+
+
+def time_context(X: np.ndarray, lags=CONTEXT_LAGS) -> np.ndarray:
+    """(T, F) -> (T, F * (1 + len(lags))): each frame's inputs plus their change to nearby frames.
+
+    Vertical position and current-profile relaxation depend on how the coils are moving, not only
+    where they are; per-frame inputs cannot see that. Edge frames reuse the nearest frame (zero
+    change). Uses inputs only, so it applies at test time unchanged.
+    """
+    t = np.arange(len(X))
+    return np.concatenate([X] + [X[np.clip(t + l, 0, len(X) - 1)] - X for l in lags], axis=1)

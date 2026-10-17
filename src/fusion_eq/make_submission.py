@@ -7,6 +7,7 @@ an error, never a silent zero map.
 
     PYTHONPATH=src uv run python -m fusion_eq.make_submission --max-shots 5     # format check
 """
+import os
 import pickle
 import sys
 
@@ -19,6 +20,15 @@ from .paths import RUNS_DIR, use_starter
 ENSEMBLE = ["mlp64-w2048-lr1e3-clip-v200", "mlp64-w2048-lr1e3-clip-s1-v200",
             "mlp64-w2048-lr1e3-clip-s2-v200"]
 _model = None
+
+
+class _NumpyPsi32:
+    """numpy for the skeleton, with float16 mapped to float32. The skeleton stores psi as float16
+    (submission_skeleton.py:102); the scorer upcasts on read, so float32 is accepted, and on the
+    validation fold float16 cost 0.0015 consistency (0.0003 S) at the DIII-D level we are at."""
+
+    def __getattr__(self, name):
+        return np.float32 if name == "float16" else getattr(np, name)
 
 
 def row_features(row) -> np.ndarray:
@@ -58,7 +68,9 @@ def main() -> int:
     import submission_skeleton as sk
     from . import models_torch  # noqa: F401  registers PcaMlp so the pickles resolve
 
-    _model = Ensemble(pickle.loads((RUNS_DIR / "models" / f"{t}.pkl").read_bytes()) for t in ENSEMBLE)
+    # FUSION_DIIID_MODELS=tag[,tag] swaps the DIII-D model (e.g. the compute-light ridge) per build.
+    tags = os.environ.get("FUSION_DIIID_MODELS", ",".join(ENSEMBLE)).split(",")
+    _model = Ensemble(pickle.loads((RUNS_DIR / "models" / f"{t}.pkl").read_bytes()) for t in tags)
     mast_i = iter(range(10 ** 6))  # the skeleton streams MAST rows in the order mast_batch cached
 
     def predict(row, source):
@@ -67,6 +79,7 @@ def main() -> int:
         return load_mast(next(mast_i), len(np.asarray(row["efit_times"])))
 
     sk.your_model_predict = predict
+    sk.np = _NumpyPsi32()
     return sk.main()
 
 
