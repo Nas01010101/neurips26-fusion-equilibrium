@@ -24,18 +24,15 @@ score:
 # --- reproduction (docs/REPRODUCE.md) ---
 RUNS ?= /Volumes/PortableSSD/scratch/fusion-eq-runs
 PY := PYTHONPATH=src uv run python -m
-TRAIN := --model pca_mlp --stride 6 --n-val 200
-KW := "width":2048,"epochs":80,"lr":1e-3,"clip":1.0
+TRAIN := --model pca_ridge --stride 6 --n-val 200
 
 # DIII-D train shots -> per-shot feature npz
 cache:
 	$(PY) fusion_eq.data /Volumes/PortableSSD/datasets/fusion-equilibrium/data/diii_d_train $(RUNS)/cache
 
-# the three ensemble members (seeds 0, 1, 2), pickled to $(RUNS)/models
+# the DIII-D ridge, pickled to $(RUNS)/models
 train:
-	$(PY) fusion_eq.evaluate $(TRAIN) --kw '{$(KW)}' --tag mlp64-w2048-lr1e3-clip-v200 --save
-	$(PY) fusion_eq.evaluate $(TRAIN) --kw '{$(KW),"seed":1}' --tag mlp64-w2048-lr1e3-clip-s1-v200 --save
-	$(PY) fusion_eq.evaluate $(TRAIN) --kw '{$(KW),"seed":2}' --tag mlp64-w2048-lr1e3-clip-s2-v200 --save
+	$(PY) fusion_eq.evaluate $(TRAIN) --kw '{"ip_interact": true}' --tag ridge32-ipx-clip-v200 --save
 
 weights:
 	cd $(RUNS)/models && shasum -a 256 -c $(CURDIR)/docs/weights.sha256

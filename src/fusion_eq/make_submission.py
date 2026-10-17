@@ -1,9 +1,9 @@
 """Run the starter's submission_skeleton with our model plugged into its predict hook.
 
 Reusing the skeleton keeps its shot ordering, validation and push/pointer logic byte-for-byte; only
-`your_model_predict` is replaced. DIII-D uses the saved ensemble. MAST reads the per-shot cache that
-`fusion_eq.mast_batch` writes (the physics predictor is too slow to run inline); a missing shot is
-an error, never a silent zero map.
+`your_model_predict` is replaced. DIII-D uses the saved ridge (`DIIID_MODELS`). MAST reads the
+per-shot cache that `fusion_eq.mast_batch` writes (the physics predictor is too slow to run
+inline); a missing shot is an error, never a silent zero map.
 
     PYTHONPATH=src uv run python -m fusion_eq.make_submission --max-shots 5     # format check
 """
@@ -17,8 +17,7 @@ from .data import add_thomson, shot_features
 from .models import Ensemble
 from .paths import RUNS_DIR, use_starter
 
-ENSEMBLE = ["mlp64-w2048-lr1e3-clip-v200", "mlp64-w2048-lr1e3-clip-s1-v200",
-            "mlp64-w2048-lr1e3-clip-s2-v200"]
+DIIID_MODELS = ["ridge32-ipx-clip-v200"]
 _model = None
 
 
@@ -68,8 +67,8 @@ def main() -> int:
     import submission_skeleton as sk
     from . import models_torch  # noqa: F401  registers PcaMlp so the pickles resolve
 
-    # FUSION_DIIID_MODELS=tag[,tag] swaps the DIII-D model (e.g. the compute-light ridge) per build.
-    tags = os.environ.get("FUSION_DIIID_MODELS", ",".join(ENSEMBLE)).split(",")
+    # FUSION_DIIID_MODELS=tag[,tag] swaps the DIII-D model per build; several tags are averaged.
+    tags = os.environ.get("FUSION_DIIID_MODELS", ",".join(DIIID_MODELS)).split(",")
     _model = Ensemble(pickle.loads((RUNS_DIR / "models" / f"{t}.pkl").read_bytes()) for t in tags)
     mast_i = iter(range(10 ** 6))  # the skeleton streams MAST rows in the order mast_batch cached
 
