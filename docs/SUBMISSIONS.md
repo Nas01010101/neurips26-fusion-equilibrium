@@ -7,6 +7,9 @@ Scores from the public leaderboard API (`/api/phases/29580/get_leaderboard/`). D
 | 2026-10-10 | `submission_pointer.zip` | 974601 | 0.9910 | 0.9997 | 0.9940 | 0.0133 | 0.9671 | 0.0 | −0.6644 | −5.5356 | 1.0 | 0.0 | 0.0 |
 | 2026-10-15 | `submission_pointer_c3.zip` (HF rev `72d9ecbc`) | pending | | | | | | | | | | | |
 | 2026-10-16 | `submission_pointer_c4.zip` (HF rev `89d03297`) | pending | | | | | | | | | | | |
+| 2026-10-17 | `submission_pointer_c6.zip` (HF rev `262e20e6`), ridge DIII-D | pending | | | | | | | | | | | |
+| 2026-10-17 | `submission_pointer_c7v.zip` (HF rev `0da927e1`), ridge DIII-D | pending | | | | | | | | | | | |
+| 2026-10-17 | `submission_pointer_c7sv.zip` (HF rev `99d5d516`), ridge DIII-D | pending | | | | | | | | | | | |
 
 - 974601 predates the MAST physics solver (`0f87b44`).
 - c3 on the 3 MAST demo shots (`fusion_eq.mast_score`): S 0.579, R²ψ 0.794, R² q95/βN 0.132, 1−D_LCFS 0.851, consistency 0.188.

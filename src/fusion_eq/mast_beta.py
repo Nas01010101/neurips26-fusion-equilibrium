@@ -45,6 +45,8 @@ def recompute(cache: Path, rows: Path, win: int = BETA_SMOOTH, fn=beta_n) -> dic
 
 
 def main() -> int:
+    from .paths import use_starter
+    use_starter()  # thomson_edges imports the starter's data_fixes
     ap = argparse.ArgumentParser()
     ap.add_argument("cache")
     ap.add_argument("--rows", default="/Volumes/PortableSSD/scratch/fusion-eq-runs/mast/rows")

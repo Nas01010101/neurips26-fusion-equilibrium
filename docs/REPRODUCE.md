@@ -1,6 +1,6 @@
 # Reproduction
 
-DIII-D: ensemble of three MLPs on PCA coefficients of the flux map, trained on the public DIII-D train split.
+DIII-D: ridge regression from the shot inputs to 32 PCA coefficients of the flux map and to the scalars, with sign(Ip) interaction features and inputs clipped to the training range, trained on the public DIII-D train split.
 MAST: zero-shot physics predictor (coil Green's functions, free-boundary solve, Thomson-located boundary). No MAST equilibrium data enters it from any source.
 
 ## Pinned inputs
@@ -19,7 +19,7 @@ MAST: zero-shot physics predictor (coil Green's functions, free-boundary solve, 
 make vendor setup test
 make data-train        # DIII-D train parquet
 make cache             # 7041 shots -> per-shot feature npz
-make train             # 3 ensemble members, seeds 0/1/2
+make train             # DIII-D ridge
 make weights           # sha256 check of the pickles
 make mast              # MAST physics predictions, resumable per shot, then mast_post
 make submission ARGS="--repo <user>/fusion-eq-predictions"   # build, validate, push, pointer zip
@@ -29,11 +29,11 @@ make submission ARGS="--repo <user>/fusion-eq-predictions"   # build, validate, 
 ## Compute
 | Step | Hardware used | Cost |
 |---|---|---|
-| `train` | Apple M4 (MPS), 16 GB | ~30 min per member including scoring 200 val shots; well under 1 A100 GPU-h for all three |
+| `train` | Apple M4 CPU, 16 GB | 13-17 min (792-994 s) including scoring 200 val shots, 6.0 GB peak RSS; no GPU |
 | `mast` | Apple M4 CPU, 8 workers | ~1.6 s per frame; 69,075 frames on the 1206-shot public test set ≈ 31 CPU-h (≈4 h wall). CPU, declared under the CPU-uncapped clause |
 | `cache`, `submission` | CPU | not timed separately |
 
-Retraining on MPS or CUDA is not bit-identical (non-deterministic kernels); the shipped pickles are the reference.
+`make train` on CPU rebuilds the shipped pickle byte for byte (same sha256, checked 2026-10-17 on current code).
 
 ## Physics constants (literature, not fitted)
 - `mast.FAST_ION_FRAC = 0.35`: NBI fast-ion share of MAST stored energy, Cecconello et al., Nucl. Fusion 59 016006 (2019). Thomson-based βN is thermal only, so total βN = thermal / (1 − 0.35).
@@ -51,5 +51,5 @@ Retraining on MPS or CUDA is not bit-identical (non-deterministic kernels); the 
 Development-phase scores of our own genuine candidate submissions were used to compare and select MAST pipeline variants (rule 3, feedback clause). Two Development submissions (P1, P2 in `SUBMISSIONS.md`) rescaled our predictions to measure label statistics; under the 2026-10-04 probe clause those statistics count as MAST data, so no constant fitted to them, and nothing derived from them, enters any Final submission. The fitting code was removed from the repository. Early in Development (through c3) MAST variants were also scored on the starter's 3 labelled demo shots; the scorer (`mast_score.py`) was removed. The four constants first picked on them now come from the sources above: SMOOTH (5, unchanged) and BETA_SMOOTH (9 -> 5) from the CV; WALL_R (0.20 m) from MAST design geometry; SOL_SCALE (0.5) from the signal convention, now one of three per-shot choices made against Thomson.
 
 ## Validation
-- DIII-D, 200 held-out train shots, official scorer: S = 0.9915 (`ens3-w2048` in `$RUNS/results.jsonl`).
+- DIII-D, 200 held-out train shots, official scorer: S = 0.903 (`ridge32-ipx-clip-v200` in `$RUNS/results.jsonl`).
 - MAST: no offline score. The demo shots are used for format inspection only; MAST is judged by the platform.

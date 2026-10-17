@@ -12,7 +12,7 @@ src/fusion_eq/
   submit.py    npz writer for the Codabench contract
 vendor/starter official loaders, errata fixes, scorer (pinned commit, gitignored)
 docs/RULES.md rules and deadlines     docs/STRATEGY.md plan and risks
-docs/REPRODUCE.md pinned inputs, entrypoints, compute   docs/weights.sha256 ensemble hashes
+docs/REPRODUCE.md pinned inputs, entrypoints, compute   docs/weights.sha256 DIII-D ridge hash
 ```
 
 ## Commands
