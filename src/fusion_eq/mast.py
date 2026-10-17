@@ -32,12 +32,13 @@ WALL_R = 0.20
 # shorter than the current-diffusion time, so frame-to-frame scatter in the solve is noise.
 # The scatter enters through the Thomson outer edge that places each solve; leave-one-out CV of a
 # running mean over that edge on all 1206 public test shots (mast_smooth_cv, MAST inputs only)
-# picks 7 Thomson pulses = 29 ms = 5 EFIT frames.
+# picks 7 Thomson pulses = 29 ms pooled, 5 pulses = 21 ms by per-shot normalised error (mean,
+# median and 90% trimmed mean agree); the nearest odd EFIT window to either is 5 frames.
 SMOOTH = 5
-# Frames per running mean of betaN. Thomson pressure scatters far more frame to frame than the
-# stored energy can change (confinement time tens of ms); 9 frames = 45 ms. Demo betaN R2
-# 0.39 -> 0.55, rising on all 3 shots (wider windows rise further but approach a shot mean).
-BETA_SMOOTH = 9
+# Frames per running mean of betaN, by the same CV on the volume-averaged Thomson pressure:
+# per-shot normalised error is lowest at 5 pulses = 21 ms (mean, median, trimmed mean agree) ->
+# 5 frames. The pooled error is flatter and dominated by a few high-scatter shots.
+BETA_SMOOTH = 5
 
 
 def _median5(x):

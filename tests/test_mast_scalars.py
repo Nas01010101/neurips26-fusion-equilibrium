@@ -72,7 +72,8 @@ def test_mast_post_v1_gets_beta_smoothing_once(tmp_path):
              betaN=beta, method="freeb", post="v1")
     assert convert(None, tmp_path / "a.npz") == "beta"
     assert convert(None, tmp_path / "a.npz") == "current"
-    assert np.allclose(np.load(tmp_path / "a.npz")["betaN"], 2.0)
+    from fusion_eq.mast import BETA_SMOOTH, smooth_frames
+    assert np.allclose(np.load(tmp_path / "a.npz")["betaN"], smooth_frames(beta.astype(float), BETA_SMOOTH))
 
 
 def test_machine_mask_covers_plasma_region_and_excludes_conductors():

@@ -11,7 +11,8 @@ interpolated between Thomson pulses, neighbours share noise, and LOO would favou
 - BETA_SMOOTH: the volume-averaged Thomson pressure, which carries all the frame-to-frame scatter
   of betaN (Ip, B0 and the minor radius are smooth by comparison).
 - SMOOTH (psi, q95): the Thomson outer edge, which positions every free-boundary solve.
-The best window in ms is converted to EFIT frames. Uses MAST inputs only (Rule 3: label-free
+The window is chosen on the median over shots of each shot's normalised LOO error (the pooled
+error is also printed), and its span in ms is converted to the nearest odd count of EFIT frames. Uses MAST inputs only (Rule 3: label-free
 test-time adaptation); no equilibrium label is read.
 
     PYTHONPATH=src:vendor/starter uv run python -m fusion_eq.mast_smooth_cv [ROWS_DIR]
@@ -79,10 +80,16 @@ def main() -> int:
         sse = sum(r[j][0] for r in res)
         n = sum(r[j][1] for r in res)
         cv = sse / np.maximum(n, 1)
-        best = int(WINDOWS[np.argmin(cv)])
-        frames = max(1, int(2 * round((best * dt / efit_dt - 1) / 2) + 1))
-        print(f"{name}: LOO MSE " + " ".join(f"{w}:{v:.4g}" for w, v in zip(WINDOWS, cv)))
-        print(f"  best {best} pulses = {best * dt:.0f} ms -> {frames} EFIT frames")
+        print(f"{name}: pooled LOO MSE " + " ".join(f"{w}:{v:.4g}" for w, v in zip(WINDOWS, cv)))
+        # Per shot, normalised by the shot's mean over windows, so a few high-scatter shots do
+        # not set the window for all; the chosen window is the median over shots.
+        per = np.array([r[j][0] / np.maximum(r[j][1], 1) for r in res if r[j][1].min() > 20])
+        norm = np.median(per / per.mean(1, keepdims=True), 0)
+        print(f"  per-shot median ({len(per)} shots) " + " ".join(f"{w}:{v:.4f}" for w, v in zip(WINDOWS, norm)))
+        for lab, v in (("pooled", cv), ("per-shot", norm)):
+            best = int(WINDOWS[np.argmin(v)])
+            frames = max(1, int(2 * round((best * dt / efit_dt - 1) / 2) + 1))
+            print(f"  {lab} best {best} pulses = {best * dt:.0f} ms -> {frames} EFIT frames")
     return 0
 
 
