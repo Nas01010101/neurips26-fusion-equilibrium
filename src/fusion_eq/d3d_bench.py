@@ -40,6 +40,8 @@ VARIANTS = {
     # EDGE_ERR: edges as a density edge would give them, inside the LCFS and jittered
     "sym_e": {"edge_err": True},
     "iter4_e": {"n_iter": 4, "edge_err": True},
+    "iter2": {"n_iter": 2},
+    "iter2_e": {"n_iter": 2, "edge_err": True},
 }
 
 
