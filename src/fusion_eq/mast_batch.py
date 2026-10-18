@@ -20,7 +20,8 @@ import numpy as np
 
 from .paths import HF_REPO, RUNS_DIR, SPLIT
 
-CACHE = RUNS_DIR / "mast" / "preds"
+# Final-phase predictions get their own cache so a private run never overlays public shots.
+CACHE = RUNS_DIR / "mast" / ("preds" if SPLIT == "public_test" else "preds_private")
 KW = {}  # predict_mast options (set per worker by _init)
 SOL_FROM = None  # cache whose per-shot sol_scale is reused; shots missing there fall back to --sol
 
