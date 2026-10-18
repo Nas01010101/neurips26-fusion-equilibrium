@@ -7,12 +7,12 @@ Recomputed files carry `beta_win`; files already at the requested window are ski
     PYTHONPATH=src uv run python -m fusion_eq.mast_beta CACHE_DIR [--rows ROWS_DIR] [--win N]
 """
 import argparse
-import os
 import pickle
 from pathlib import Path
 
 import numpy as np
 
+from .paths import save_npz
 from .mast import BETA_SMOOTH, FAST_ION_FRAC, mast_scalars, smooth_frames, thomson_edges, total_beta_n
 
 
@@ -36,9 +36,7 @@ def recompute(cache: Path, rows: Path, win: int = BETA_SMOOTH, fn=beta_n) -> dic
         else:
             row = pickle.load(open(rows / f"{f.stem[5:]}.pkl", "rb"))
             d.update(betaN=fn(row, win).astype(np.float32), beta_win=np.array(win))
-            tmp = f.with_name(f.stem + ".tmp.npz")
-            np.savez(tmp, **d)
-            os.replace(tmp, f)  # atomic, as in mast_batch
+            save_npz(f, **d)
             how = "recomputed"
         counts[how] = counts.get(how, 0) + 1
     return counts

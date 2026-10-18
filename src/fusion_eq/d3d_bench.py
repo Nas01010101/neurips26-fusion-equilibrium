@@ -18,11 +18,12 @@ shot's EFIT mean where no surface is found. betaN is the shot's EFIT mean for ev
     PYTHONPATH=src uv run python -m fusion_eq.d3d_bench --files LIST --score sym vert --out DIR
 """
 import argparse
-import os
 from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
+
+from .paths import npz_done, save_npz
 
 E_SCALE = 65.0
 STRIDE = 10  # every 10th EFIT frame
@@ -95,7 +96,7 @@ def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=No
 def _work(args):
     path, variant, out = args
     dst = Path(out) / (Path(path).stem + ".npz")
-    if dst.exists():
+    if npz_done(dst):
         return
     row = load_row(path)
     T = len(row["efit_times"])
@@ -103,9 +104,7 @@ def _work(args):
     psi_gt = np.stack([np.asarray(row["efit_psirz"][k], float) for k in frames])
     p = predict(row, frames, **VARIANTS[variant])
     p = p + (psi_gt - p).mean(axis=(1, 2), keepdims=True)
-    tmp = dst.with_suffix(".tmp.npz")
-    np.savez(tmp, psirz=p.astype(np.float32), frames=frames)
-    os.replace(tmp, dst)  # atomic: a killed run (rtx lost power once) never leaves a torn file
+    save_npz(dst, psirz=p.astype(np.float32), frames=frames)
 
 
 def _init():

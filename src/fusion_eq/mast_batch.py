@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .paths import HF_REPO, RUNS_DIR, SPLIT
+from .paths import HF_REPO, RUNS_DIR, SPLIT, npz_done, save_npz
 
 # Final-phase predictions get their own cache so a private run never overlays public shots.
 CACHE = RUNS_DIR / "mast" / ("preds" if SPLIT == "public_test" else "preds_private")
@@ -62,7 +62,7 @@ def finite_or_fallback(row, out: dict | None) -> tuple[dict, str]:
 def _work(args):
     i, row = args
     p = cache_path(i)
-    if p.exists():
+    if npz_done(p):
         return i, "cached", 0.0
     from .mast import predict_mast
     t0 = time.time()
@@ -76,11 +76,9 @@ def _work(args):
         traceback.print_exc(file=sys.stderr)
         out = None
     out, how = finite_or_fallback(row, out)
-    tmp = p.with_suffix(".tmp.npz")
-    np.savez(tmp, psirz=out["psirz"].astype(np.float32), q95=out["q95"].astype(np.float32),
+    save_npz(p, psirz=out["psirz"].astype(np.float32), q95=out["q95"].astype(np.float32),
              betaN=out["betaN"].astype(np.float32), method=how, sol_scale=out.get("sol_scale", -1.0),
              **({} if how == "const" else {"beta": np.array("total"), "post": np.array("v2")}))  # see mast_rescale, mast_post
-    os.replace(tmp, p)  # atomic: a killed run never leaves a half-written shot behind
     return i, how, time.time() - t0
 
 
@@ -89,7 +87,7 @@ def rows(max_shots: int, only: set | None = None, rows_dir: str | None = None):
         import pickle
         for f in sorted(Path(rows_dir).glob("[0-9][0-9][0-9][0-9].pkl")):
             i = int(f.stem)
-            if (not max_shots or i < max_shots) and (only is None or i in only) and not cache_path(i).exists():
+            if (not max_shots or i < max_shots) and (only is None or i in only) and not npz_done(cache_path(i)):
                 with open(f, "rb") as fh:
                     yield i, pickle.load(fh)
         return
@@ -97,7 +95,7 @@ def rows(max_shots: int, only: set | None = None, rows_dir: str | None = None):
     for i, row in enumerate(load_dataset(HF_REPO, f"mast_{SPLIT}", split=SPLIT, streaming=True)):
         if max_shots and i >= max_shots:
             return
-        if (only is None or i in only) and not cache_path(i).exists():
+        if (only is None or i in only) and not npz_done(cache_path(i)):
             yield i, row
 
 

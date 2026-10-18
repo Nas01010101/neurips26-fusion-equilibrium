@@ -104,5 +104,5 @@ def test_mast_batch_rows_filters_to_requested_shots(monkeypatch, tmp_path):
     fake = types.SimpleNamespace(load_dataset=lambda *a, **k: iter([{"k": i} for i in range(6)]))
     monkeypatch.setitem(sys.modules, "datasets", fake)
     monkeypatch.setattr(b, "CACHE", tmp_path)
-    (tmp_path / "shot_0003.npz").write_bytes(b"")
+    np.savez(tmp_path / "shot_0003.npz", sol_scale=0.5)  # a complete cached shot
     assert [i for i, _ in b.rows(0, {1, 3, 4})] == [1, 4]
