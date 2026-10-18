@@ -26,6 +26,7 @@ import numpy as np
 
 E_SCALE = 65.0
 STRIDE = 10  # every 10th EFIT frame
+EDGE_ERR = (0.03, 0.02)  # (bias inward, sd) in m: Thomson 30% density edge vs LCFS, assumed
 N_TF = 144  # DIII-D TF turns (design value; EFIT q95 / q95 at one turn gives 143.4)
 VARIANTS = {
     "sym": {},
@@ -36,6 +37,9 @@ VARIANTS = {
     "iter16": {"n_iter": 16},
     "iter4": {"n_iter": 4},
     "iter6": {"n_iter": 6},
+    # EDGE_ERR: edges as a density edge would give them, inside the LCFS and jittered
+    "sym_e": {"edge_err": True},
+    "iter4_e": {"n_iter": 4, "edge_err": True},
 }
 
 
@@ -50,7 +54,7 @@ def edges(row, k):
     return (r.min(), r.max()) if n >= 5 else (np.nan, np.nan)
 
 
-def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None, n_iter=8):
+def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None, n_iter=8, edge_err=False):
     """psi (len(frames), nZ, nR) in DIII-D's stored sign, before the offset."""
     from data_fixes import fix_d3d_ip_times
     from .freeb import solve_matched
@@ -69,6 +73,10 @@ def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=No
     out = s * vac
     for j, k in enumerate(frames):
         rin, rout = edges(row, k)
+        if edge_err:  # same draw for every variant: seeded by shot and frame
+            e = np.random.default_rng([int(row["efit_times"][0] * 1e6) % 2**31, int(k)])
+            rin, rout = (rin + EDGE_ERR[0] + EDGE_ERR[1] * e.standard_normal(),
+                         rout - EDGE_ERR[0] + EDGE_ERR[1] * e.standard_normal())
         if not (np.isfinite(rin) and np.isfinite(ip[j])):
             continue
         J = shaped_current(R, Z, (rin + rout) / 2, (rout - rin) / 2, kappa, delta, alpha=alpha)
