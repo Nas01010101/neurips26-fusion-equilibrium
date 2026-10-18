@@ -42,6 +42,7 @@ VARIANTS = {
     "sym_e": {"edge_err": True},
     "iter4_e": {"n_iter": 4, "edge_err": True},
     "iter2": {"n_iter": 2},
+    "iter2v": {"n_iter": 2, "vertical": True},  # the two bench winners combined
     "iter2_e": {"n_iter": 2, "edge_err": True},
     "iter1": {"n_iter": 1},
     "iter1_e": {"n_iter": 1, "edge_err": True},
