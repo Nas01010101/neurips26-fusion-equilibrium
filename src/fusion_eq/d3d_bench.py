@@ -43,6 +43,9 @@ VARIANTS = {
     "iter4_e": {"n_iter": 4, "edge_err": True},
     "iter2": {"n_iter": 2},
     "iter2v": {"n_iter": 2, "vertical": True},  # the two bench winners combined
+    # beta0 picked by the Thomson Te check (te_check.frame_err) alone, or with the edge miss
+    "te4_e": {"n_iter": 4, "edge_err": True, "te_select": "te"},
+    "teh4_e": {"n_iter": 4, "edge_err": True, "te_select": "hybrid"},
     "iter2_e": {"n_iter": 2, "edge_err": True},
     "iter1": {"n_iter": 1},
     "iter1_e": {"n_iter": 1, "edge_err": True},
@@ -62,7 +65,8 @@ def edges(row, k):
     return (r.min(), r.max()) if n >= 5 else (np.nan, np.nan)
 
 
-def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None, n_iter=8, edge_err=False):
+def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None, n_iter=8, edge_err=False,
+            te_select=None):
     """psi (len(frames), nZ, nR) in DIII-D's stored sign, before the offset."""
     from data_fixes import fix_d3d_ip_times
     from .freeb import solve_matched
@@ -88,8 +92,19 @@ def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=No
         if not (np.isfinite(rin) and np.isfinite(ip[j])):
             continue
         J = shaped_current(R, Z, (rin + rout) / 2, (rout - rin) / 2, kappa, delta, alpha=alpha)
+        sel = None
+        if te_select:
+            from .te_check import frame_err, thomson_points
+            pts = thomson_points(row, t[j])
+
+            def sel(psi, edge, pts=pts):
+                te = frame_err(psi, R, Z, pts)
+                if not np.isfinite(te):
+                    return edge
+                # hybrid scales: Thomson edge sd ~0.02 m (EDGE_ERR); te spread between beta0s ~0.01
+                return te + 1e-3 * edge if te_select == "te" else te / 0.01 + edge / 0.02
         out[j] = solve_matched(s * vac[j], J, R, Z, abs(ip[j]), mc, mc.astype(np.float64), rout,
-                               alpha=alpha, vertical=vertical, n_iter=n_iter,
+                               alpha=alpha, vertical=vertical, n_iter=n_iter, select=sel,
                                **({"r_in": rin, "dbz": dbz} if dbz else {}))[0]
     return -out  # DIII-D stores the axis as a minimum
 

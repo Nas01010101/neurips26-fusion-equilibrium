@@ -75,7 +75,8 @@ def solve(vac, J0, R, Z, ip, mask_coarse, mask_f, alpha=1.0, beta0=0.5, n_iter=1
 
 
 def solve_matched(vac, J0, R, Z, ip, mask_coarse, mask_f, r_out, alpha=1.0,
-                  beta0s=(0.0, 0.1, 0.2, 0.3, 0.4, 0.5), n_iter=8, r_in=None, dbz=(0.0,), **kw):
+                  beta0s=(0.0, 0.1, 0.2, 0.3, 0.4, 0.5), n_iter=8, r_in=None, dbz=(0.0,), select=None,
+                  **kw):
     """Solve for each beta0 and keep the one whose LCFS outer midplane radius is nearest the
     Thomson-measured edge `r_out`. beta0 sets the pressure share of J and so the outward radial
     force; a measured boundary pins it, as magnetics + kinetic constraints do inside EFIT.
@@ -84,6 +85,7 @@ def solve_matched(vac, J0, R, Z, ip, mask_coarse, mask_f, r_out, alpha=1.0,
     the vacuum (psi += dBz R^2 / 2 in Wb/rad): an error field of the kind vessel currents leave,
     which moves the plasma radially while beta0 sets its outward push. The error is then the sum
     of both edge misses, and the added field stays in the returned psi.
+    `select(psi, edge_err)` replaces the selection error, e.g. to weigh in a Thomson Te check.
     Returns (psi, J, beta0); `kw` goes to solve."""
     from lcfs import extract_lcfs
     R2 = np.broadcast_to(R[None, :] ** 2 / 2, vac.shape)
@@ -100,6 +102,8 @@ def solve_matched(vac, J0, R, Z, ip, mask_coarse, mask_f, r_out, alpha=1.0,
                 err = abs(c[:, 0].max() - r_out)
                 if r_in is not None:
                     err += abs(c[:, 0].min() - r_in)
+            if select is not None:
+                err = select(psi, err)
             if best is None or err < best_err:
                 best, best_err = (psi, J, b), err
     return best
