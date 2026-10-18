@@ -35,6 +35,7 @@ proxy score alone.
 ## What it cannot tell
 
 - How the MAST vacuum (solenoid convention, EFPS, no vessel currents) behaves.
-- q95 and βN: both are set to the shot's EFIT mean, so Bench A ranks ψ, D_LCFS and Consistency.
+- βN: set to the shot's EFIT mean. q95 is measured on each variant's ψ with F from the TF current
+  at 144 turns (DIII-D design; EFIT ψ gives 143.4), added 2026-10-18 before the full set was scored.
 - Whether DIII-D's mostly single-null shapes stand in for MAST's double-null ones. A gain that
   comes from up-down asymmetry is the case most likely to transfer badly.

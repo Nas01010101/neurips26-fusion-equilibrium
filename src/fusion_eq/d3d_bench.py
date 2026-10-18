@@ -10,8 +10,9 @@ stay fair:
     shipped convention lumps its turns into one conductor);
   - each frame gets the flux offset that best fits EFIT (no vessel-current model). An offset
     moves no contour, so the LCFS, the seven derived scalars and q95 are untouched.
-q95 and betaN are set to the shot's EFIT mean (identical across variants), so the bench ranks
-psi, D_LCFS and Consistency only.
+q95 is measured on each variant's psi (qprofile.q_at, F from the TF current at N_TF turns, the
+DIII-D design count; on EFIT psi this reproduces EFIT q95 within 0.5%), falling back to the
+shot's EFIT mean where no surface is found. betaN is the shot's EFIT mean for every variant.
 
     PYTHONPATH=src uv run python -m fusion_eq.d3d_bench --files LIST --variant sym --out DIR
     PYTHONPATH=src uv run python -m fusion_eq.d3d_bench --files LIST --score sym vert --out DIR
@@ -25,12 +26,14 @@ import numpy as np
 
 E_SCALE = 65.0
 STRIDE = 10  # every 10th EFIT frame
+N_TF = 144  # DIII-D TF turns (design value; EFIT q95 / q95 at one turn gives 143.4)
 VARIANTS = {
     "sym": {},
     "vert": {"vertical": True},
     "alpha2": {"alpha": 2.0},
     "alpha05": {"alpha": 0.5},
     "gap": {"dbz": (-0.04, -0.02, 0.0, 0.02, 0.04)},
+    "iter16": {"n_iter": 16},
 }
 
 
@@ -45,7 +48,7 @@ def edges(row, k):
     return (r.min(), r.max()) if n >= 5 else (np.nan, np.nan)
 
 
-def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None):
+def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None, n_iter=8):
     """psi (len(frames), nZ, nR) in DIII-D's stored sign, before the offset."""
     from data_fixes import fix_d3d_ip_times
     from .freeb import solve_matched
@@ -68,7 +71,7 @@ def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=No
             continue
         J = shaped_current(R, Z, (rin + rout) / 2, (rout - rin) / 2, kappa, delta, alpha=alpha)
         out[j] = solve_matched(s * vac[j], J, R, Z, abs(ip[j]), mc, mc.astype(np.float64), rout,
-                               alpha=alpha, vertical=vertical,
+                               alpha=alpha, vertical=vertical, n_iter=n_iter,
                                **({"r_in": rin, "dbz": dbz} if dbz else {}))[0]
     return -out  # DIII-D stores the axis as a minimum
 
@@ -110,10 +113,17 @@ def _scored(args):
     R, Z, mc = mk["grid_R"], mk["grid_Z"], mk["mask_coarse"].astype(bool)
     gt = _truth(path)
     ref = L.build_reference(gt["psi"], R, Z, mc, mc.astype(np.float64))
+    from .greens import interp_signal
+    from .qprofile import q_at, vacuum_f
+    row = load_row(path)
+    t = np.asarray(row["efit_times"], float)[np.arange(0, len(row["efit_times"]), STRIDE)]
+    f = vacuum_f(interp_signal(row["magnetics_time"], row["magnetics_bcoil"], t) * 1e3, N_TF)
     preds = {}
     for v in variants:
         p = np.load(Path(out) / v / (Path(path).stem + ".npz"))["psirz"].astype(np.float64)
-        preds[v] = {"psirz": p, "q95": np.full_like(gt["q95"], np.nanmean(gt["q95"])),
+        q = np.array([q_at(p[k], R, Z, f[k], "DIII-D", mask_coarse=mc, mask_f=mc.astype(np.float64))
+                      for k in range(len(p))])
+        preds[v] = {"psirz": p, "q95": np.where(np.isfinite(q), q, np.nanmean(gt["q95"])),
                     "betaN": np.full_like(gt["betaN"], np.nanmean(gt["betaN"]))}
     return gt, ref, preds
 
@@ -155,7 +165,7 @@ def score(files, variants, out, workers, n_boot=1000):
     full = {v: comp(allx, v) for v in variants}
     for v in variants:
         r = full[v]
-        print(f"{v:8s} S {r['S']:.4f}  psi {r['r2_psi']:.4f}  dlcfs {r['dlcfs']:.4f}  "
+        print(f"{v:8s} S {r['S']:.4f}  psi {r['r2_psi']:.4f}  q95 {r['r2_each']['q95']:.4f}  dlcfs {r['dlcfs']:.4f}  "
               f"cons {r['consistency']:.4f}  " + " ".join(
                   f"{k} {x:.3f}" for k, x in r["r2_cons_each"].items() if x is not None))
     rng = np.random.default_rng(0)
