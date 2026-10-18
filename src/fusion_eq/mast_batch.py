@@ -112,8 +112,9 @@ def main() -> int:
     ap.add_argument("--profile", default="power", choices=("power", "spitzer"))
     ap.add_argument("--vertical", action="store_true", help="in-loop force-balance vertical shift")
     ap.add_argument("--warm", action="store_true", help="search beta0 near the previous frame's")
+    ap.add_argument("--freeb-iter", type=int, default=8, help="Picard iterations per free-boundary solve")
     a = ap.parse_args()
-    kw = {"profile": a.profile, "vertical": a.vertical, "warm": a.warm}
+    kw = {"profile": a.profile, "vertical": a.vertical, "warm": a.warm, "freeb_iter": a.freeb_iter}
     if a.sol:
         kw["sol_scale"] = a.sol if a.sol == "thomson" else float(a.sol)
     _init(a.cache, kw, a.sol_from)
