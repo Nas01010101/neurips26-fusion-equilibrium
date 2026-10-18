@@ -75,18 +75,31 @@ def solve(vac, J0, R, Z, ip, mask_coarse, mask_f, alpha=1.0, beta0=0.5, n_iter=1
 
 
 def solve_matched(vac, J0, R, Z, ip, mask_coarse, mask_f, r_out, alpha=1.0,
-                  beta0s=(0.0, 0.1, 0.2, 0.3, 0.4, 0.5), n_iter=8, **kw):
+                  beta0s=(0.0, 0.1, 0.2, 0.3, 0.4, 0.5), n_iter=8, r_in=None, dbz=(0.0,), **kw):
     """Solve for each beta0 and keep the one whose LCFS outer midplane radius is nearest the
     Thomson-measured edge `r_out`. beta0 sets the pressure share of J and so the outward radial
     force; a measured boundary pins it, as magnetics + kinetic constraints do inside EFIT.
+
+    With `r_in` the inner edge is matched too, through a uniform vertical field dBz (T) added to
+    the vacuum (psi += dBz R^2 / 2 in Wb/rad): an error field of the kind vessel currents leave,
+    which moves the plasma radially while beta0 sets its outward push. The error is then the sum
+    of both edge misses, and the added field stays in the returned psi.
     Returns (psi, J, beta0); `kw` goes to solve."""
     from lcfs import extract_lcfs
+    R2 = np.broadcast_to(R[None, :] ** 2 / 2, vac.shape)
     best, best_err = None, np.inf
-    for b in beta0s:
-        psi, J = solve(vac, J0, R, Z, ip, mask_coarse, mask_f, alpha=alpha, beta0=b, n_iter=n_iter,
-                       **kw)
-        c = extract_lcfs(psi, R, Z, "MAST", mask_coarse, mask_f, n_iter=14, n_points=256)
-        err = abs(c[:, 0].max() - r_out) if c is not None else np.inf
-        if best is None or err < best_err:
-            best, best_err = (psi, J, b), err
+    for bz in dbz if r_in is not None else (0.0,):
+        v = vac + bz * R2 if bz else vac
+        for b in beta0s:
+            psi, J = solve(v, J0, R, Z, ip, mask_coarse, mask_f, alpha=alpha, beta0=b,
+                           n_iter=n_iter, **kw)
+            c = extract_lcfs(psi, R, Z, "MAST", mask_coarse, mask_f, n_iter=14, n_points=256)
+            if c is None:
+                err = np.inf
+            else:
+                err = abs(c[:, 0].max() - r_out)
+                if r_in is not None:
+                    err += abs(c[:, 0].min() - r_in)
+            if best is None or err < best_err:
+                best, best_err = (psi, J, b), err
     return best

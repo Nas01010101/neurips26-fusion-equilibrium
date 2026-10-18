@@ -1,4 +1,5 @@
-"""Predict the MAST public test set in parallel into a per-shot cache that make_submission reads.
+"""Predict the MAST test split (FUSION_SPLIT, default public_test) in parallel into a per-shot
+cache that make_submission reads.
 
 The free-boundary solve costs ~1.6 s per frame, so the 1206-shot set is hours of CPU: shots run
 in a process pool, each result lands in its own file, and a rerun skips files already written.
@@ -17,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .paths import HF_REPO, RUNS_DIR
+from .paths import HF_REPO, RUNS_DIR, SPLIT
 
 CACHE = RUNS_DIR / "mast" / "preds"
 KW = {}  # predict_mast options (set per worker by _init)
@@ -92,7 +93,7 @@ def rows(max_shots: int, only: set | None = None, rows_dir: str | None = None):
                     yield i, pickle.load(fh)
         return
     from datasets import load_dataset
-    for i, row in enumerate(load_dataset(HF_REPO, "mast_public_test", split="public_test", streaming=True)):
+    for i, row in enumerate(load_dataset(HF_REPO, f"mast_{SPLIT}", split=SPLIT, streaming=True)):
         if max_shots and i >= max_shots:
             return
         if (only is None or i in only) and not cache_path(i).exists():

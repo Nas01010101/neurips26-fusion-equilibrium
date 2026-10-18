@@ -110,7 +110,8 @@ def machine_mask(row, R, Z, clearance: float = 0.05) -> np.ndarray:
     axis and LCFS (Rule 3 keeps that envelope inside the scoring derivation)."""
     from scipy.spatial import ConvexHull, Delaunay
     cR, cZ = np.asarray(row["coil_R"], float), np.asarray(row["coil_Z"], float)
-    sol = np.asarray(row["coil_input_column"]) == "magnetics_sol_current"
+    # the central solenoid: MAST names it sol, DIII-D ships its E-coil as ECOILA
+    sol = np.isin(row["coil_input_column"], ("magnetics_sol_current", "magnetics_ECOILA"))
     Rg, Zg = np.meshgrid(R, Z)
     q = np.c_[Rg.ravel(), Zg.ravel()]
     pts = np.c_[cR, cZ]

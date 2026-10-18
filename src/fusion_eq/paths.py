@@ -8,6 +8,8 @@ STARTER = ROOT / "vendor" / "starter"
 DATA_DIR = Path(os.environ.get("FUSION_DATA_DIR", "/Volumes/PortableSSD/datasets/fusion-equilibrium"))
 RUNS_DIR = Path(os.environ.get("FUSION_RUNS_DIR", "/Volumes/PortableSSD/scratch/fusion-eq-runs"))
 HF_REPO = "Sophelio/fusion-equilibrium-challenge"
+# Test split to predict: public_test (Development phase) or private_test (Final phase).
+SPLIT = os.environ.get("FUSION_SPLIT", "public_test")
 
 
 def use_starter() -> Path:

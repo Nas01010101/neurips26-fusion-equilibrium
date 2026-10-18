@@ -1,0 +1,191 @@
+"""Bench A: run the MAST free-boundary pipeline on labelled DIII-D shots and score it.
+
+MAST has no labels we may use, so a MAST-side change (vertical force balance, current profile)
+is judged here instead: same solver, same shape priors, DIII-D coils and EFIT truth. Three
+substitutions keep it runnable, each applied identically to every variant so paired differences
+stay fair:
+  - the Thomson edges are replaced by the EFIT LCFS inner and outer radii (DIII-D's Thomson laser
+    is vertical and gives no midplane profile);
+  - the E-coil term is scaled by E_SCALE, the median least-squares fit on 8 training shots (the
+    shipped convention lumps its turns into one conductor);
+  - each frame gets the flux offset that best fits EFIT (no vessel-current model). An offset
+    moves no contour, so the LCFS, the seven derived scalars and q95 are untouched.
+q95 and betaN are set to the shot's EFIT mean (identical across variants), so the bench ranks
+psi, D_LCFS and Consistency only.
+
+    PYTHONPATH=src uv run python -m fusion_eq.d3d_bench --files LIST --variant sym --out DIR
+    PYTHONPATH=src uv run python -m fusion_eq.d3d_bench --files LIST --score sym vert --out DIR
+"""
+import argparse
+import os
+from multiprocessing import Pool
+from pathlib import Path
+
+import numpy as np
+
+E_SCALE = 65.0
+STRIDE = 10  # every 10th EFIT frame
+VARIANTS = {
+    "sym": {},
+    "vert": {"vertical": True},
+    "alpha2": {"alpha": 2.0},
+    "alpha05": {"alpha": 0.5},
+    "gap": {"dbz": (-0.04, -0.02, 0.0, 0.02, 0.04)},
+}
+
+
+def load_row(path):
+    import pyarrow.parquet as pq
+    return {k: v[0] for k, v in pq.read_table(path).to_pydict().items()}
+
+
+def edges(row, k):
+    n = int(np.asarray(row["efit_lcfs_n"])[k])
+    r = np.asarray(row["efit_lcfs_r"][k], float)[:n]
+    return (r.min(), r.max()) if n >= 5 else (np.nan, np.nan)
+
+
+def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None):
+    """psi (len(frames), nZ, nR) in DIII-D's stored sign, before the offset."""
+    from data_fixes import fix_d3d_ip_times
+    from .freeb import solve_matched
+    from .greens import coil_greens, interp_signal
+    from .mast import machine_mask, shaped_current
+    R = np.asarray(row["efit_grid_R"], float)
+    Z = np.asarray(row["efit_grid_Z"], float)
+    t = np.asarray(row["efit_times"], float)[frames]
+    tm = np.asarray(row["magnetics_time"], float)
+    vac = sum(interp_signal(tm, row[c], t)[:, None, None] * 1e3 * g
+              * (E_SCALE if c == "magnetics_ECOILA" else 1.0)
+              for c, g in coil_greens(row, R, Z).items())
+    ip = interp_signal(fix_d3d_ip_times(row), row["magnetics_plasma_current"], t) * 1e3
+    s = np.sign(np.nanmedian(ip)) or 1.0  # solve with the axis a maximum, as on MAST
+    mc = machine_mask(row, R, Z)
+    out = s * vac
+    for j, k in enumerate(frames):
+        rin, rout = edges(row, k)
+        if not (np.isfinite(rin) and np.isfinite(ip[j])):
+            continue
+        J = shaped_current(R, Z, (rin + rout) / 2, (rout - rin) / 2, kappa, delta, alpha=alpha)
+        out[j] = solve_matched(s * vac[j], J, R, Z, abs(ip[j]), mc, mc.astype(np.float64), rout,
+                               alpha=alpha, vertical=vertical,
+                               **({"r_in": rin, "dbz": dbz} if dbz else {}))[0]
+    return -out  # DIII-D stores the axis as a minimum
+
+
+def _work(args):
+    path, variant, out = args
+    dst = Path(out) / (Path(path).stem + ".npz")
+    if dst.exists():
+        return
+    row = load_row(path)
+    T = len(row["efit_times"])
+    frames = np.arange(0, T, STRIDE)
+    psi_gt = np.stack([np.asarray(row["efit_psirz"][k], float) for k in frames])
+    p = predict(row, frames, **VARIANTS[variant])
+    p = p + (psi_gt - p).mean(axis=(1, 2), keepdims=True)
+    np.savez(dst, psirz=p.astype(np.float32), frames=frames)
+
+
+def _init():
+    from .paths import use_starter
+    use_starter()
+    import local_score  # noqa: F401  puts fusion_scoring/ on sys.path
+
+
+def _truth(path):
+    row = load_row(path)
+    frames = np.arange(0, len(row["efit_times"]), STRIDE)
+    q95 = np.asarray(row["efit_q95"], float)[frames]
+    bn = np.asarray(row["efit_beta_n"], float)[frames]
+    return {"psi": np.stack([np.asarray(row["efit_psirz"][k], np.float32) for k in frames]),
+            "q95": q95, "betaN": bn}
+
+
+def _scored(args):
+    """Per-shot scorer output for every variant (reference built once)."""
+    path, variants, out = args
+    import local_score as L
+    mk = np.load(Path(L.HERE) / "fusion_scoring" / "masks" / "d3d_envelope.npz")
+    R, Z, mc = mk["grid_R"], mk["grid_Z"], mk["mask_coarse"].astype(bool)
+    gt = _truth(path)
+    ref = L.build_reference(gt["psi"], R, Z, mc, mc.astype(np.float64))
+    preds = {}
+    for v in variants:
+        p = np.load(Path(out) / v / (Path(path).stem + ".npz"))["psirz"].astype(np.float64)
+        preds[v] = {"psirz": p, "q95": np.full_like(gt["q95"], np.nanmean(gt["q95"])),
+                    "betaN": np.full_like(gt["betaN"], np.nanmean(gt["betaN"]))}
+    return gt, ref, preds
+
+
+def score(files, variants, out, workers, n_boot=1000):
+    """Composite S per variant, and a paired shot-bootstrap CI of S(v) - S(variants[0])."""
+    _init()
+    import local_score as L
+    with Pool(workers, initializer=_init) as pool:
+        res = pool.map(_scored, [(f, variants, out) for f in files])
+    R = np.load(Path(L.HERE) / "fusion_scoring" / "masks" / "d3d_envelope.npz")
+    Rg, Zg, mc = R["grid_R"], R["grid_Z"], R["mask_coarse"].astype(bool)
+    ps, pss, pn = 0.0, 0.0, 0
+    ss, sss, sn = np.zeros(L.N_SCALARS), np.zeros(L.N_SCALARS), np.zeros(L.N_SCALARS)
+    cs, css, cn = np.zeros(L.N_CONS), np.zeros(L.N_CONS), np.zeros(L.N_CONS)
+    for gt, ref, _ in res:
+        g = gt["psi"].astype(np.float64)
+        ps += g.sum(); pss += (g ** 2).sum(); pn += g.size
+        for j, name in enumerate(L.SCALARS):
+            v = gt[name][np.isfinite(gt[name])]
+            ss[j] += v.sum(); sss[j] += (v ** 2).sum(); sn[j] += v.size
+        for j in range(L.N_CONS):
+            v = ref[1][ref[2][:, j], j]
+            cs[j] += v.sum(); css[j] += (v ** 2).sum(); cn[j] += v.size
+    stats = {"psi_sum": ps, "psi_sumsq": pss, "psi_n": pn, "scal_sum": ss, "scal_sumsq": sss,
+             "scal_n": sn, "cons_sum": cs, "cons_sumsq": css, "cons_n": cn}
+    means = (ps / pn, ss / np.maximum(sn, 1), cs / np.maximum(cn, 1))
+    per = {v: [L.score_shot(gt, ref, p[v], Rg, Zg, mc, mc.astype(np.float64), 1, means)
+               for gt, ref, p in res] for v in variants}
+
+    def comp(shots, v):
+        acc = L.Accum()
+        acc.psi_sign = 1
+        for i in shots:
+            acc.add(per[v][i])
+        return L.finalize_machine(acc, stats)  # stats from all shots: fine for paired deltas
+
+    allx = np.arange(len(files))
+    full = {v: comp(allx, v) for v in variants}
+    for v in variants:
+        r = full[v]
+        print(f"{v:8s} S {r['S']:.4f}  psi {r['r2_psi']:.4f}  dlcfs {r['dlcfs']:.4f}  "
+              f"cons {r['consistency']:.4f}  " + " ".join(
+                  f"{k} {x:.3f}" for k, x in r["r2_cons_each"].items() if x is not None))
+    rng = np.random.default_rng(0)
+    boots = [rng.integers(0, len(files), len(files)) for _ in range(n_boot)]
+    for v in variants[1:]:
+        d = np.array([comp(b, v)["S"] - comp(b, variants[0])["S"] for b in boots])
+        print(f"{v} - {variants[0]}: dS {full[v]['S'] - full[variants[0]]['S']:+.4f}  "
+              f"95% CI [{np.percentile(d, 2.5):+.4f}, {np.percentile(d, 97.5):+.4f}]")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--files", required=True, help="text file, one parquet path per line")
+    ap.add_argument("--variant", choices=sorted(VARIANTS))
+    ap.add_argument("--score", nargs="+", choices=sorted(VARIANTS), help="baseline first")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--workers", type=int, default=8)
+    a = ap.parse_args()
+    files = [l.strip() for l in open(a.files) if l.strip()]
+    if a.score:
+        score(files, a.score, a.out, a.workers)
+        return 0
+    out = Path(a.out) / a.variant
+    out.mkdir(parents=True, exist_ok=True)
+    with Pool(a.workers, initializer=_init) as pool:
+        for _ in pool.imap_unordered(_work, [(f, a.variant, out) for f in files]):
+            pass
+    print(a.variant, len(list(out.glob("*.npz"))), "shots")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
