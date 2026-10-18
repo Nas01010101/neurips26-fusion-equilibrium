@@ -34,6 +34,8 @@ VARIANTS = {
     "alpha05": {"alpha": 0.5},
     "gap": {"dbz": (-0.04, -0.02, 0.0, 0.02, 0.04)},
     "iter16": {"n_iter": 16},
+    "iter4": {"n_iter": 4},
+    "iter6": {"n_iter": 6},
 }
 
 
@@ -87,7 +89,9 @@ def _work(args):
     psi_gt = np.stack([np.asarray(row["efit_psirz"][k], float) for k in frames])
     p = predict(row, frames, **VARIANTS[variant])
     p = p + (psi_gt - p).mean(axis=(1, 2), keepdims=True)
-    np.savez(dst, psirz=p.astype(np.float32), frames=frames)
+    tmp = dst.with_suffix(".tmp.npz")
+    np.savez(tmp, psirz=p.astype(np.float32), frames=frames)
+    os.replace(tmp, dst)  # atomic: a killed run (rtx lost power once) never leaves a torn file
 
 
 def _init():
