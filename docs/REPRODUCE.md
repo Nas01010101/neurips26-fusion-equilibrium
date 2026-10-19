@@ -24,6 +24,16 @@ make weights           # sha256 check of the pickles, copy to $RUNS/models
 make mast              # MAST physics predictions, resumable per shot, then mast_post
 make submission ARGS="--repo <user>/fusion-eq-predictions"   # build, validate, push, pointer zip
 ```
+Final phase (`FUSION_SPLIT=private_test`, inputs from the pinned Final dataset revision):
+```
+FUSION_DIIID_ONLY=1 make submission                     # ridge DIII-D file, identical in every Final
+python -m fusion_eq.mast_batch --sol 0.5 --cache C8     # Final 1 (default 8 free-boundary iterations)
+python -m fusion_eq.mast_batch --sol 0.5 --freeb-iter 4 --cache IT4                   # Final 2
+python -m fusion_eq.mast_vertical IT4 IT4V --rows ROWS   # Final 3 = Final 2 + force-balance shift
+python -m fusion_eq.mast_beta CACHE --rows ROWS --win 13  # betaN window, each cache
+python -m fusion_eq.swap_mast D3D_DIR OUT_DIR CACHE      # MAST file into the DIII-D base
+```
+`ROWS` holds the private MAST input rows as `NNNN.pkl`, in stream order: `python -m fusion_eq.dump_rows ROWS`.
 `make submission` without `ARGS` builds and validates only. The pointer zip holds a read-only HF token; it is never committed.
 
 ## Compute
@@ -48,7 +58,7 @@ make submission ARGS="--repo <user>/fusion-eq-predictions"   # build, validate, 
 - Solver options (`--profile spitzer`, `--vertical`, `--warm`) are pipeline variants, not fitted constants.
 
 ## Use of Development-phase scores (disclosed)
-Development-phase scores of our own genuine candidate submissions were used to compare and select MAST pipeline variants (rule 3, feedback clause). Two Development submissions (P1, P2 in `SUBMISSIONS.md`) rescaled our predictions to measure label statistics; under the 2026-10-04 probe clause those statistics count as MAST data, so no constant fitted to them, and nothing derived from them, enters any Final submission. The fitting code was removed from the repository. Early in Development (through c3) MAST variants were also scored on the starter's 3 labelled demo shots; the scorer (`mast_score.py`) was removed. The four constants first picked on them now come from the sources above: SMOOTH (5, unchanged) and BETA_SMOOTH (9 -> 5) from the CV; WALL_R (0.20 m) from MAST design geometry; SOL_SCALE (0.5) from the signal convention, now one of three per-shot choices made against Thomson.
+Development-phase scores of our own genuine candidate submissions were used to compare and select MAST pipeline variants (rule 3, feedback clause). Two Development submissions (P1, P2 in `SUBMISSIONS.md`) rescaled our predictions to measure label statistics; under the 2026-10-04 probe clause those statistics count as MAST data, so no constant fitted to them, and nothing derived from them, enters any Final submission. The fitting code was removed from the repository. P1 also applied the force-balance vertical shift at its physics strength (no scale factor); Final 3 uses that shift, selected on the DIII-D bench (300 train shots, dS +0.0022, 95% CI [+0.0017, +0.0027]), not on P1's score. Early in Development (through c3) MAST variants were also scored on the starter's 3 labelled demo shots; the scorer (`mast_score.py`) was removed. The four constants first picked on them now come from the sources above: SMOOTH (5, unchanged) and BETA_SMOOTH (9 -> 5) from the CV; WALL_R (0.20 m) from MAST design geometry; SOL_SCALE (0.5) from the signal convention, now one of three per-shot choices made against Thomson.
 
 ## Validation
 - DIII-D, 200 held-out train shots, official scorer: S = 0.903 (`ridge32-ipx-clip-v200` in `$RUNS/results.jsonl`).
