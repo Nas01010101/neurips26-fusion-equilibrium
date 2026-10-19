@@ -37,7 +37,7 @@ Scoring facts the gate is built on (docs/RULES.md, STATE.md):
    - **HOLD**: the evidence is missing or too weak. Typical causes are a bench z below the bar, n < 200, a Te-worse veto, or a near-duplicate of another slot. Do not upload. Either get the evidence or leave the slot to a candidate that has it.
    - **UPLOAD**: the candidate beats the anchor with high confidence and adds something the other slots don't.
 4. **Report the projection honestly.** G_proj = (anchor Dev MAST S + bench dS) / ridge Dev DIII-D S, against the Dev
-   top-G bar. It assumes 1:1 transfer from DIII-D to MAST, which is unverified. MAST te_check called iter4 neutral, and older
+   top-G bar. It assumes 1:1 transfer from DIII-D to MAST, which is unverified. MAST te_check flags iter4 worse (+0.0039, ~70% of c7sv's gap; it caught c7sv, missed c6 on Dev). Older
    Thomson proxies ranked Dev submissions backwards (docs/BENCH.md). So it is information, not a gate. If
    the gap to the bar is larger than any bench dS, say plainly that no candidate makes a win likely.
    Then say which slots still raise our best-of score.
