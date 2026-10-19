@@ -51,6 +51,9 @@ VARIANTS = {
     "iter1_e": {"n_iter": 1, "edge_err": True},
     "iter0": {"n_iter": 0},  # J0 alone: the shape prior with no Picard pass
     "iter0_e": {"n_iter": 0, "edge_err": True},
+    # post-hoc mast_vertical on a solved variant, as the c8v / iter4v MAST caches are built
+    "pv": {"posthoc": "sym"},
+    "iter4pv": {"posthoc": "iter4"},
 }
 
 
@@ -65,13 +68,11 @@ def edges(row, k):
     return (r.min(), r.max()) if n >= 5 else (np.nan, np.nan)
 
 
-def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None, n_iter=8, edge_err=False,
-            te_select=None):
-    """psi (len(frames), nZ, nR) in DIII-D's stored sign, before the offset."""
+def vacuum(row, frames):
+    """(R, Z, t, vac, ip, s, mask): coil flux per frame and the Ip sign s the solver works in."""
     from data_fixes import fix_d3d_ip_times
-    from .freeb import solve_matched
     from .greens import coil_greens, interp_signal
-    from .mast import machine_mask, shaped_current
+    from .mast import machine_mask
     R = np.asarray(row["efit_grid_R"], float)
     Z = np.asarray(row["efit_grid_Z"], float)
     t = np.asarray(row["efit_times"], float)[frames]
@@ -81,7 +82,29 @@ def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=No
               for c, g in coil_greens(row, R, Z).items())
     ip = interp_signal(fix_d3d_ip_times(row), row["magnetics_plasma_current"], t) * 1e3
     s = np.sign(np.nanmedian(ip)) or 1.0  # solve with the axis a maximum, as on MAST
-    mc = machine_mask(row, R, Z)
+    return R, Z, t, vac, ip, s, machine_mask(row, R, Z)
+
+
+def posthoc_vertical(row, frames, p):
+    """mast_vertical's post-hoc force-balance shift applied to a solved bench psi (stored sign,
+    any per-frame offset): the bench analogue of the MAST Finals built with mast_vertical.
+    The running median spans 5 bench frames (every STRIDE-th EFIT frame), not 5 EFIT frames."""
+    from scipy.ndimage import shift
+    from .mast_vertical import vertical_shifts
+    R, Z, _, vac, _, s, mc = vacuum(row, frames)
+    out = -p  # solver sign (axis maximum); a per-frame constant leaves J and the shift unchanged
+    z = vertical_shifts(out, s * vac, R, Z, mc)
+    dZ = Z[1] - Z[0]
+    return -np.stack([s * vac[k] + shift(out[k] - s * vac[k], (z[k] / dZ, 0), order=3, mode="nearest")
+                      for k in range(len(p))])
+
+
+def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None, n_iter=8, edge_err=False,
+            te_select=None):
+    """psi (len(frames), nZ, nR) in DIII-D's stored sign, before the offset."""
+    from .freeb import solve_matched
+    from .mast import shaped_current
+    R, Z, t, vac, ip, s, mc = vacuum(row, frames)
     out = s * vac
     for j, k in enumerate(frames):
         rin, rout = edges(row, k)
@@ -118,7 +141,13 @@ def _work(args):
     T = len(row["efit_times"])
     frames = np.arange(0, T, STRIDE)
     psi_gt = np.stack([np.asarray(row["efit_psirz"][k], float) for k in frames])
-    p = predict(row, frames, **VARIANTS[variant])
+    cfg = VARIANTS[variant]
+    if "posthoc" in cfg:
+        base = np.load(Path(out).parent / cfg["posthoc"] / dst.name)
+        assert (base["frames"] == frames).all()
+        p = posthoc_vertical(row, frames, base["psirz"].astype(np.float64))
+    else:
+        p = predict(row, frames, **cfg)
     p = p + (psi_gt - p).mean(axis=(1, 2), keepdims=True)
     save_npz(dst, psirz=p.astype(np.float32), frames=frames)
 
@@ -161,8 +190,10 @@ def _scored(args):
     return gt, ref, preds
 
 
-def score(files, variants, out, workers, n_boot=1000):
-    """Composite S per variant, and a paired shot-bootstrap CI of S(v) - S(variants[0])."""
+def score(files, variants, out, workers, n_boot=1000, json_out=None):
+    """Composite S per variant, and a paired shot-bootstrap CI of S(v) - S(variants[0]).
+    `json_out` saves the full scores and every variant's S on the same bootstrap draws, so any
+    pair can be compared later (fusion_eq.final_gate)."""
     _init()
     import local_score as L
     with Pool(workers, initializer=_init) as pool:
@@ -203,23 +234,33 @@ def score(files, variants, out, workers, n_boot=1000):
                   f"{k} {x:.3f}" for k, x in r["r2_cons_each"].items() if x is not None))
     rng = np.random.default_rng(0)
     boots = [rng.integers(0, len(files), len(files)) for _ in range(n_boot)]
+    bs = {v: np.array([comp(b, v)["S"] for b in boots]) for v in variants}
     for v in variants[1:]:
-        d = np.array([comp(b, v)["S"] - comp(b, variants[0])["S"] for b in boots])
+        d = bs[v] - bs[variants[0]]
         print(f"{v} - {variants[0]}: dS {full[v]['S'] - full[variants[0]]['S']:+.4f}  "
               f"95% CI [{np.percentile(d, 2.5):+.4f}, {np.percentile(d, 97.5):+.4f}]")
+    if json_out:
+        import json
+        Path(json_out).write_text(json.dumps({
+            "n_shots": len(files), "n_boot": n_boot, "files": [Path(f).stem for f in files],
+            "S": {v: full[v]["S"] for v in variants},
+            "cons_each": {v: full[v]["r2_cons_each"] for v in variants},
+            "boot_S": {v: bs[v].tolist() for v in variants}}))
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--files", required=True, help="text file, one parquet path per line")
     ap.add_argument("--variant", choices=sorted(VARIANTS))
-    ap.add_argument("--score", nargs="+", choices=sorted(VARIANTS), help="baseline first")
+    ap.add_argument("--score", nargs="+", help="variant dirs under --out, baseline first")
+    ap.add_argument("--json", help="with --score: save scores and bootstrap draws here")
+    ap.add_argument("--n-boot", type=int, default=1000)
     ap.add_argument("--out", required=True)
     ap.add_argument("--workers", type=int, default=8)
     a = ap.parse_args()
     files = [l.strip() for l in open(a.files) if l.strip()]
     if a.score:
-        score(files, a.score, a.out, a.workers)
+        score(files, a.score, a.out, a.workers, n_boot=a.n_boot, json_out=a.json)
         return 0
     out = Path(a.out) / a.variant
     out.mkdir(parents=True, exist_ok=True)
