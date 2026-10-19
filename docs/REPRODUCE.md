@@ -8,7 +8,7 @@ MAST: zero-shot physics predictor (coil Green's functions, free-boundary solve, 
 |---|---|
 | Code | this repository, commit of the submitted build |
 | Starter kit | `Sophelio/fusion-equilibrium-challenge-starter` @ `5b467988d2e5f28e20be490a926d0a71649de28d` (`make vendor`) |
-| Data | HF dataset `Sophelio/fusion-equilibrium-challenge`: `data/diii_d_train/*` for training; public/blind test splits streamed by the starter's `submission_skeleton.py` |
+| Data | HF dataset `Sophelio/fusion-equilibrium-challenge`: `data/diii_d_train/*` for training; public test splits streamed by the starter's `submission_skeleton.py`; Final inputs from `ganatma/fusion-equilibrium-challenge-final` at revision `965040c12b814f33c8e7209f6b1799932247e793` (`FUSION_SPLIT=private_test`) |
 | Environment | Python 3.12, `uv.lock` (torch 2.5.1) |
 | Weights | `weights/*.pkl` in this repo, sha256 in `docs/weights.sha256` (`make weights` checks them and copies them to `$RUNS/models`) |
 
