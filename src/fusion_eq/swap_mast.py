@@ -12,7 +12,9 @@ from pathlib import Path
 
 import numpy as np
 
-N_MAST = 1206  # public-test MAST shots, in mast_batch order
+from .paths import SPLIT
+
+N_MAST = {"public_test": 1206, "private_test": 1205}  # MAST shots per split, in mast_batch order
 
 
 def main() -> int:
@@ -20,17 +22,18 @@ def main() -> int:
     ap.add_argument("base", type=Path)
     ap.add_argument("out", type=Path)
     ap.add_argument("caches", type=Path, nargs="+")
+    ap.add_argument("--n-shots", type=int, default=N_MAST.get(SPLIT))
     ap.add_argument("--psi-dtype", default="float16", help="float16 as the starter skeleton writes")
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
-    d3d = a.out / "diii_d_public_test.npz"
+    d3d = a.out / f"diii_d_{SPLIT}.npz"
     if not d3d.exists():
         try:
             os.link(a.base / d3d.name, d3d)
         except OSError:
             shutil.copy2(a.base / d3d.name, d3d)
     preds, src = {}, {}
-    for i in range(N_MAST):
+    for i in range(a.n_shots):
         f = next((c / f"shot_{i:04d}.npz" for c in reversed(a.caches) if (c / f"shot_{i:04d}.npz").exists()), None)
         if f is None:
             raise FileNotFoundError(f"MAST shot {i} in none of {a.caches}")
@@ -39,7 +42,7 @@ def main() -> int:
         preds[f"shot_{i:04d}_psirz"] = d["psirz"].astype(a.psi_dtype)
         for k in ("q95", "betaN"):
             preds[f"shot_{i:04d}_{k}"] = d[k].astype(np.float32)
-    np.savez_compressed(a.out / "mast_public_test.npz", **preds)
+    np.savez_compressed(a.out / f"mast_{SPLIT}.npz", **preds)
     print("shots per cache:", src)
     return 0
 

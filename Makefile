@@ -1,4 +1,4 @@
-STARTER_SHA := 5b467988d2e5f28e20be490a926d0a71649de28d
+STARTER_SHA := 4b6af065cf5ce0db88f2cac4546a9ac5c6147f26
 
 .PHONY: setup vendor test data-train score cache train mast submission weights
 setup:
@@ -35,7 +35,8 @@ train:
 	$(PY) fusion_eq.evaluate $(TRAIN) --kw '{"ip_interact": true}' --tag ridge32-ipx-clip-v200 --save
 
 weights:
-	cd $(RUNS)/models && shasum -a 256 -c $(CURDIR)/docs/weights.sha256
+	cd weights && shasum -a 256 -c $(CURDIR)/docs/weights.sha256
+	mkdir -p $(RUNS)/models && cp weights/*.pkl $(RUNS)/models/
 
 # MAST physics predictions (CPU, resumable) -> $(RUNS)/mast/preds
 mast:

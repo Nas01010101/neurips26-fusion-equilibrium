@@ -15,7 +15,7 @@ import numpy as np
 
 from .data import add_thomson, shot_features
 from .models import Ensemble
-from .paths import RUNS_DIR, use_starter
+from .paths import RUNS_DIR, SPLIT, use_starter
 
 DIIID_MODELS = ["ridge32-ipx-clip-v200"]
 _model = None
@@ -78,6 +78,10 @@ def main() -> int:
         return load_mast(next(mast_i), len(np.asarray(row["efit_times"])))
 
     sk.your_model_predict = predict
+    sk.TEST_CONFIGS = [(f"diii_d_{SPLIT}", SPLIT), (f"mast_{SPLIT}", SPLIT)]
+    # FUSION_DIIID_ONLY=1 writes the DIII-D file alone while MAST is still solving; swap_mast adds MAST.
+    if os.environ.get("FUSION_DIIID_ONLY") == "1":
+        sk.TEST_CONFIGS = sk.TEST_CONFIGS[:1]
     sk.np = _NumpyPsi32()
     return sk.main()
 

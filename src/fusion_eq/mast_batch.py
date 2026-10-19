@@ -1,4 +1,5 @@
-"""Predict the MAST public test set in parallel into a per-shot cache that make_submission reads.
+"""Predict the MAST test split (FUSION_SPLIT, default public_test) in parallel into a per-shot
+cache that make_submission reads.
 
 The free-boundary solve costs ~1.6 s per frame, so the 1206-shot set is hours of CPU: shots run
 in a process pool, each result lands in its own file, and a rerun skips files already written.
@@ -17,9 +18,10 @@ from pathlib import Path
 
 import numpy as np
 
-from .paths import HF_REPO, RUNS_DIR
+from .paths import DATA_REPO, DATA_REVISION, RUNS_DIR, SPLIT, npz_done, save_npz
 
-CACHE = RUNS_DIR / "mast" / "preds"
+# Final-phase predictions get their own cache so a private run never overlays public shots.
+CACHE = RUNS_DIR / "mast" / ("preds" if SPLIT == "public_test" else "preds_private")
 KW = {}  # predict_mast options (set per worker by _init)
 SOL_FROM = None  # cache whose per-shot sol_scale is reused; shots missing there fall back to --sol
 
@@ -60,7 +62,7 @@ def finite_or_fallback(row, out: dict | None) -> tuple[dict, str]:
 def _work(args):
     i, row = args
     p = cache_path(i)
-    if p.exists():
+    if npz_done(p):
         return i, "cached", 0.0
     from .mast import predict_mast
     t0 = time.time()
@@ -74,11 +76,9 @@ def _work(args):
         traceback.print_exc(file=sys.stderr)
         out = None
     out, how = finite_or_fallback(row, out)
-    tmp = p.with_suffix(".tmp.npz")
-    np.savez(tmp, psirz=out["psirz"].astype(np.float32), q95=out["q95"].astype(np.float32),
+    save_npz(p, psirz=out["psirz"].astype(np.float32), q95=out["q95"].astype(np.float32),
              betaN=out["betaN"].astype(np.float32), method=how, sol_scale=out.get("sol_scale", -1.0),
              **({} if how == "const" else {"beta": np.array("total"), "post": np.array("v2")}))  # see mast_rescale, mast_post
-    os.replace(tmp, p)  # atomic: a killed run never leaves a half-written shot behind
     return i, how, time.time() - t0
 
 
@@ -87,15 +87,16 @@ def rows(max_shots: int, only: set | None = None, rows_dir: str | None = None):
         import pickle
         for f in sorted(Path(rows_dir).glob("[0-9][0-9][0-9][0-9].pkl")):
             i = int(f.stem)
-            if (not max_shots or i < max_shots) and (only is None or i in only) and not cache_path(i).exists():
+            if (not max_shots or i < max_shots) and (only is None or i in only) and not npz_done(cache_path(i)):
                 with open(f, "rb") as fh:
                     yield i, pickle.load(fh)
         return
     from datasets import load_dataset
-    for i, row in enumerate(load_dataset(HF_REPO, "mast_public_test", split="public_test", streaming=True)):
+    for i, row in enumerate(load_dataset(DATA_REPO, f"mast_{SPLIT}", split=SPLIT, streaming=True,
+                                              revision=DATA_REVISION)):
         if max_shots and i >= max_shots:
             return
-        if (only is None or i in only) and not cache_path(i).exists():
+        if (only is None or i in only) and not npz_done(cache_path(i)):
             yield i, row
 
 
@@ -111,8 +112,9 @@ def main() -> int:
     ap.add_argument("--profile", default="power", choices=("power", "spitzer"))
     ap.add_argument("--vertical", action="store_true", help="in-loop force-balance vertical shift")
     ap.add_argument("--warm", action="store_true", help="search beta0 near the previous frame's")
+    ap.add_argument("--freeb-iter", type=int, default=8, help="Picard iterations per free-boundary solve")
     a = ap.parse_args()
-    kw = {"profile": a.profile, "vertical": a.vertical, "warm": a.warm}
+    kw = {"profile": a.profile, "vertical": a.vertical, "warm": a.warm, "freeb_iter": a.freeb_iter}
     if a.sol:
         kw["sol_scale"] = a.sol if a.sol == "thomson" else float(a.sol)
     _init(a.cache, kw, a.sol_from)

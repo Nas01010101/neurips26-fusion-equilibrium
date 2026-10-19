@@ -8,9 +8,9 @@ MAST: zero-shot physics predictor (coil Green's functions, free-boundary solve, 
 |---|---|
 | Code | this repository, commit of the submitted build |
 | Starter kit | `Sophelio/fusion-equilibrium-challenge-starter` @ `5b467988d2e5f28e20be490a926d0a71649de28d` (`make vendor`) |
-| Data | HF dataset `Sophelio/fusion-equilibrium-challenge`: `data/diii_d_train/*` for training; public/blind test splits streamed by the starter's `submission_skeleton.py` |
+| Data | HF dataset `Sophelio/fusion-equilibrium-challenge`: `data/diii_d_train/*` for training; public test splits streamed by the starter's `submission_skeleton.py`; Final inputs from `ganatma/fusion-equilibrium-challenge-final` at revision `965040c12b814f33c8e7209f6b1799932247e793` (`FUSION_SPLIT=private_test`) |
 | Environment | Python 3.12, `uv.lock` (torch 2.5.1) |
-| Weights | `$RUNS/models/*.pkl`, sha256 in `docs/weights.sha256` (`make weights` checks them) |
+| Weights | `weights/*.pkl` in this repo, sha256 in `docs/weights.sha256` (`make weights` checks them and copies them to `$RUNS/models`) |
 
 `$RUNS` defaults to `/Volumes/PortableSSD/scratch/fusion-eq-runs`; set `FUSION_RUNS_DIR` / `FUSION_DATA_DIR` and pass `RUNS=` to make on another machine.
 
@@ -20,7 +20,7 @@ make vendor setup test
 make data-train        # DIII-D train parquet
 make cache             # 7041 shots -> per-shot feature npz
 make train             # DIII-D ridge
-make weights           # sha256 check of the pickles
+make weights           # sha256 check of the pickles, copy to $RUNS/models
 make mast              # MAST physics predictions, resumable per shot, then mast_post
 make submission ARGS="--repo <user>/fusion-eq-predictions"   # build, validate, push, pointer zip
 ```
