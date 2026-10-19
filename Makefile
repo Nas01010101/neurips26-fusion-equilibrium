@@ -35,7 +35,8 @@ train:
 	$(PY) fusion_eq.evaluate $(TRAIN) --kw '{"ip_interact": true}' --tag ridge32-ipx-clip-v200 --save
 
 weights:
-	cd $(RUNS)/models && shasum -a 256 -c $(CURDIR)/docs/weights.sha256
+	cd weights && shasum -a 256 -c $(CURDIR)/docs/weights.sha256
+	mkdir -p $(RUNS)/models && cp weights/*.pkl $(RUNS)/models/
 
 # MAST physics predictions (CPU, resumable) -> $(RUNS)/mast/preds
 mast:
