@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .paths import HF_REPO, RUNS_DIR, SPLIT, npz_done, save_npz
+from .paths import DATA_REPO, DATA_REVISION, RUNS_DIR, SPLIT, npz_done, save_npz
 
 # Final-phase predictions get their own cache so a private run never overlays public shots.
 CACHE = RUNS_DIR / "mast" / ("preds" if SPLIT == "public_test" else "preds_private")
@@ -92,7 +92,8 @@ def rows(max_shots: int, only: set | None = None, rows_dir: str | None = None):
                     yield i, pickle.load(fh)
         return
     from datasets import load_dataset
-    for i, row in enumerate(load_dataset(HF_REPO, f"mast_{SPLIT}", split=SPLIT, streaming=True)):
+    for i, row in enumerate(load_dataset(DATA_REPO, f"mast_{SPLIT}", split=SPLIT, streaming=True,
+                                              revision=DATA_REVISION)):
         if max_shots and i >= max_shots:
             return
         if (only is None or i in only) and not npz_done(cache_path(i)):

@@ -10,6 +10,10 @@ RUNS_DIR = Path(os.environ.get("FUSION_RUNS_DIR", "/Volumes/PortableSSD/scratch/
 HF_REPO = "Sophelio/fusion-equilibrium-challenge"
 # Test split to predict: public_test (Development phase) or private_test (Final phase).
 SPLIT = os.environ.get("FUSION_SPLIT", "public_test")
+# The Final inputs live in their own dataset repo, pinned to the revision the organisers announced.
+FINAL_REPO = "ganatma/fusion-equilibrium-challenge-final"
+FINAL_REVISION = "965040c12b814f33c8e7209f6b1799932247e793"
+DATA_REPO, DATA_REVISION = (FINAL_REPO, FINAL_REVISION) if SPLIT == "private_test" else (HF_REPO, None)
 
 
 def use_starter() -> Path:

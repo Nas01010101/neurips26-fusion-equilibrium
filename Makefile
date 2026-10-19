@@ -1,4 +1,4 @@
-STARTER_SHA := 5b467988d2e5f28e20be490a926d0a71649de28d
+STARTER_SHA := 4b6af065cf5ce0db88f2cac4546a9ac5c6147f26
 
 .PHONY: setup vendor test data-train score cache train mast submission weights
 setup:
