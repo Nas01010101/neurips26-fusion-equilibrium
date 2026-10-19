@@ -79,6 +79,9 @@ def main() -> int:
 
     sk.your_model_predict = predict
     sk.TEST_CONFIGS = [(f"diii_d_{SPLIT}", SPLIT), (f"mast_{SPLIT}", SPLIT)]
+    # FUSION_DIIID_ONLY=1 writes the DIII-D file alone while MAST is still solving; swap_mast adds MAST.
+    if os.environ.get("FUSION_DIIID_ONLY") == "1":
+        sk.TEST_CONFIGS = sk.TEST_CONFIGS[:1]
     sk.np = _NumpyPsi32()
     return sk.main()
 
