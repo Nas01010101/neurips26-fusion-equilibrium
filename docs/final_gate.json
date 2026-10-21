@@ -4,7 +4,7 @@
   "n_mast": 1205,
   "banned": ["envelope", "c4z", "probe", "lb_calibrate", "994489", "994472", "k\\*", "0\\.58", "\\bp[123]\\b"],
   "alpha": 0.01,
-  "m_tested": 25,
+  "m_tested": 29,
   "m_note": "bench comparisons scored so far (VARIANTS plus sel3/sel3m); raise it with every new variant scored",
   "min_bench_shots": 200,
   "te_every_shot": 15,
