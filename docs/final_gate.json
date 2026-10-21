@@ -1,6 +1,6 @@
 {
-  "diiid_sha256": "314317a8c0d3c09eb576c6d5e183f65e724f6f9edf15eb9977ccda9035998b57",
-  "diiid_note": "ridge32-ipx-clip-v200 private DIII-D file, byte-identical in every Final",
+  "diiid_sha256": "b74dda65ac034bb246cc860b4bec098d87525c3e961d0d58900b9b971f255bba",
+  "diiid_note": "ridge32-ipx-clip-v200 private DIII-D file after fusion_eq.d3d_shrink --lam 0.5 (was 314317a8), byte-identical in every Final",
   "n_mast": 1205,
   "banned": ["envelope", "c4z", "probe", "lb_calibrate", "994489", "994472", "k\\*", "0\\.58", "\\bp[123]\\b"],
   "alpha": 0.01,
@@ -9,8 +9,8 @@
   "min_bench_shots": 200,
   "te_every_shot": 15,
   "redundant_rel_rms": 0.001,
-  "anchor": {"cache": "c8_cache", "analogue": "sym", "mast_S": 0.7352, "diiid_S": 0.9048,
-             "source": "c4 993755 MAST S (c8 = c4 pipeline, sol 0.5); ridge DIII-D S from 995984"},
+  "anchor": {"cache": "c8_cache", "analogue": "sym", "mast_S": 0.7352, "diiid_S": 0.8766,
+             "source": "c4 993755 MAST S (c8 = c4 pipeline, sol 0.5); ridge DIII-D S 0.9048 from 995984 minus the lam 0.5 shrink cost 0.0282 on 200 val shots"},
   "analogues": {"c8_cache": "sym", "iter4_cache": "iter4", "c8v_cache": "pv", "iter4v_cache": "iter4pv"},
   "bar": {"G": 0.94, "source": "Development leaderboard 2026-10-15: top G 0.94-0.98 (docs/SUBMISSIONS.md)"}
 }
