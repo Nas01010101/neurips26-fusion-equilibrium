@@ -68,6 +68,12 @@ VARIANTS = {
     "sym_ts1": {"tsmooth": ("sym", 1.0)},
     "iter4pv_ts1": {"tsmooth": ("iter4pv", 1.0)},
     "iter4pv_ts2": {"tsmooth": ("iter4pv", 2.0)},
+    # fusion_eq.twin correction on a solved variant; model from FUSION_TWIN_MODEL
+    "twin": {"twin": "iter4"},
+    # correction scaled by c (picked on bench half A), optionally up-down symmetrised
+    "twin_c": {"twin": "iter4", "scale": float(os.environ.get("FUSION_TWIN_C", 1.0))},
+    "twin_cs": {"twin": "iter4", "scale": float(os.environ.get("FUSION_TWIN_C", 1.0)), "sym": True},
+    "twin_cpv": {"posthoc": "twin_c"},
 }
 
 
@@ -122,6 +128,24 @@ def tsmooth(row, frames, p, sigma):
     return gaussian_filter1d(plasma, sigma, axis=0, mode="nearest") - s * vac
 
 
+def twin_correct(row, frames, p, scale=1.0, sym=False):
+    """fusion_eq.twin's residual correction on a solved bench psi (stored sign, any offset),
+    times `scale`; `sym` keeps only its up-down symmetric part."""
+    import pickle
+    from .twin import d3d_inputs, force_z
+    tw = pickle.load(open(os.environ["FUSION_TWIN_MODEL"], "rb"))
+    R, Z, G, amps, ip, rin, rout, mc = d3d_inputs(row, frames)
+    vac = np.tensordot(amps, G, 1)
+    psi = -p  # solver sign; the stored offset is a per-frame constant, removed by the grid mean
+    ok = np.isfinite(rin) & (rout > rin) & (ip > 1e4)
+    for k in np.flatnonzero(ok):
+        phi = ((psi[k] - vac[k]) / ip[k]).reshape(1, -1)
+        sc = np.array([[rin[k], rout[k], ip[k] / 1e6, force_z(psi[k], vac[k], R, Z, mc)]])
+        d = tw.delta(phi, (vac[k] / ip[k]).reshape(1, -1), sc).reshape(psi[k].shape)
+        psi[k] = psi[k] + scale * ip[k] * ((d + d[::-1]) / 2 if sym else d)
+    return -psi
+
+
 def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None, n_iter=8, edge_err=False,
             te_select=None):
     """psi (len(frames), nZ, nR) in DIII-D's stored sign, before the offset."""
@@ -174,6 +198,11 @@ def _work(args):
         bases = [np.load(Path(out).parent / v / dst.name) for v in cfg["ensemble"]]
         assert all((b["frames"] == frames).all() for b in bases)
         p = np.mean([b["psirz"].astype(np.float64) for b in bases], axis=0)
+    elif "twin" in cfg:
+        base = np.load(Path(out).parent / cfg["twin"] / dst.name)
+        assert (base["frames"] == frames).all()
+        p = twin_correct(row, frames, base["psirz"].astype(np.float64), cfg.get("scale", 1.0),
+                         cfg.get("sym", False))
     elif "posthoc" in cfg:
         base = np.load(Path(out).parent / cfg["posthoc"] / dst.name)
         assert (base["frames"] == frames).all()
