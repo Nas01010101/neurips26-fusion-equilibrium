@@ -18,6 +18,7 @@ shot's EFIT mean where no surface is found. betaN is the shot's EFIT mean for ev
     PYTHONPATH=src uv run python -m fusion_eq.d3d_bench --files LIST --score sym vert --out DIR
 """
 import argparse
+import os
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -27,6 +28,13 @@ from .paths import npz_done, save_npz
 
 E_SCALE = 65.0
 STRIDE = 10  # every 10th EFIT frame
+# FUSION_BENCH_DENSE=N takes the first N consecutive EFIT frames instead (20 ms apart): the
+# temporal-smoothing analogue needs neighbouring frames, as on MAST (5 ms apart)
+DENSE = int(os.environ.get("FUSION_BENCH_DENSE", 0))
+
+
+def frames_of(T):
+    return np.arange(min(T, DENSE)) if DENSE else np.arange(0, T, STRIDE)
 EDGE_ERR = (0.03, 0.02)  # (bias inward, sd) in m: Thomson 30% density edge vs LCFS, assumed
 N_TF = 144  # DIII-D TF turns (design value; EFIT q95 / q95 at one turn gives 143.4)
 VARIANTS = {
@@ -54,6 +62,18 @@ VARIANTS = {
     # post-hoc mast_vertical on a solved variant, as the c8v / iter4v MAST caches are built
     "pv": {"posthoc": "sym"},
     "iter4pv": {"posthoc": "iter4"},
+    # frame-wise mean of two solved variants' psi, as an averaged MAST Final would be built
+    "ens": {"ensemble": ("sym", "iter4pv")},
+    # plasma flux (psi minus coil flux) smoothed over neighbouring frames, Gaussian sigma in frames
+    "sym_ts1": {"tsmooth": ("sym", 1.0)},
+    "iter4pv_ts1": {"tsmooth": ("iter4pv", 1.0)},
+    "iter4pv_ts2": {"tsmooth": ("iter4pv", 2.0)},
+    # fusion_eq.twin correction on a solved variant; model from FUSION_TWIN_MODEL
+    "twin": {"twin": "iter4"},
+    # correction scaled by c (picked on bench half A), optionally up-down symmetrised
+    "twin_c": {"twin": "iter4", "scale": float(os.environ.get("FUSION_TWIN_C", 1.0))},
+    "twin_cs": {"twin": "iter4", "scale": float(os.environ.get("FUSION_TWIN_C", 1.0)), "sym": True},
+    "twin_cpv": {"posthoc": "twin_c"},
 }
 
 
@@ -99,6 +119,33 @@ def posthoc_vertical(row, frames, p):
                       for k in range(len(p))])
 
 
+def tsmooth(row, frames, p, sigma):
+    """Gaussian smoothing of the plasma flux along the frame axis; each frame keeps its own coil
+    flux. A per-frame offset in p is smoothed too, which moves no contour (the offset is refit)."""
+    from scipy.ndimage import gaussian_filter1d
+    _, _, _, vac, _, s, _ = vacuum(row, frames)
+    plasma = p + s * vac  # p is stored sign (-solver), solver psi = s * vac + plasma part
+    return gaussian_filter1d(plasma, sigma, axis=0, mode="nearest") - s * vac
+
+
+def twin_correct(row, frames, p, scale=1.0, sym=False):
+    """fusion_eq.twin's residual correction on a solved bench psi (stored sign, any offset),
+    times `scale`; `sym` keeps only its up-down symmetric part."""
+    import pickle
+    from .twin import d3d_inputs, force_z
+    tw = pickle.load(open(os.environ["FUSION_TWIN_MODEL"], "rb"))
+    R, Z, G, amps, ip, rin, rout, mc = d3d_inputs(row, frames)
+    vac = np.tensordot(amps, G, 1)
+    psi = -p  # solver sign; the stored offset is a per-frame constant, removed by the grid mean
+    ok = np.isfinite(rin) & (rout > rin) & (ip > 1e4)
+    for k in np.flatnonzero(ok):
+        phi = ((psi[k] - vac[k]) / ip[k]).reshape(1, -1)
+        sc = np.array([[rin[k], rout[k], ip[k] / 1e6, force_z(psi[k], vac[k], R, Z, mc)]])
+        d = tw.delta(phi, (vac[k] / ip[k]).reshape(1, -1), sc).reshape(psi[k].shape)
+        psi[k] = psi[k] + scale * ip[k] * ((d + d[::-1]) / 2 if sym else d)
+    return -psi
+
+
 def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None, n_iter=8, edge_err=False,
             te_select=None):
     """psi (len(frames), nZ, nR) in DIII-D's stored sign, before the offset."""
@@ -139,10 +186,24 @@ def _work(args):
         return
     row = load_row(path)
     T = len(row["efit_times"])
-    frames = np.arange(0, T, STRIDE)
+    frames = frames_of(T)
     psi_gt = np.stack([np.asarray(row["efit_psirz"][k], float) for k in frames])
     cfg = VARIANTS[variant]
-    if "posthoc" in cfg:
+    if "tsmooth" in cfg:
+        base, sigma = cfg["tsmooth"]
+        b = np.load(Path(out).parent / base / dst.name)
+        assert (b["frames"] == frames).all()
+        p = tsmooth(row, frames, b["psirz"].astype(np.float64), sigma)
+    elif "ensemble" in cfg:
+        bases = [np.load(Path(out).parent / v / dst.name) for v in cfg["ensemble"]]
+        assert all((b["frames"] == frames).all() for b in bases)
+        p = np.mean([b["psirz"].astype(np.float64) for b in bases], axis=0)
+    elif "twin" in cfg:
+        base = np.load(Path(out).parent / cfg["twin"] / dst.name)
+        assert (base["frames"] == frames).all()
+        p = twin_correct(row, frames, base["psirz"].astype(np.float64), cfg.get("scale", 1.0),
+                         cfg.get("sym", False))
+    elif "posthoc" in cfg:
         base = np.load(Path(out).parent / cfg["posthoc"] / dst.name)
         assert (base["frames"] == frames).all()
         p = posthoc_vertical(row, frames, base["psirz"].astype(np.float64))
@@ -160,7 +221,7 @@ def _init():
 
 def _truth(path):
     row = load_row(path)
-    frames = np.arange(0, len(row["efit_times"]), STRIDE)
+    frames = frames_of(len(row["efit_times"]))
     q95 = np.asarray(row["efit_q95"], float)[frames]
     bn = np.asarray(row["efit_beta_n"], float)[frames]
     return {"psi": np.stack([np.asarray(row["efit_psirz"][k], np.float32) for k in frames]),
@@ -178,7 +239,7 @@ def _scored(args):
     from .greens import interp_signal
     from .qprofile import q_at, vacuum_f
     row = load_row(path)
-    t = np.asarray(row["efit_times"], float)[np.arange(0, len(row["efit_times"]), STRIDE)]
+    t = np.asarray(row["efit_times"], float)[frames_of(len(row["efit_times"]))]
     f = vacuum_f(interp_signal(row["magnetics_time"], row["magnetics_bcoil"], t) * 1e3, N_TF)
     preds = {}
     for v in variants:
