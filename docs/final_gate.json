@@ -4,13 +4,13 @@
   "n_mast": 1205,
   "banned": ["envelope", "c4z", "probe", "lb_calibrate", "994489", "994472", "k\\*", "0\\.58", "\\bp[123]\\b"],
   "alpha": 0.01,
-  "m_tested": 42,
+  "m_tested": 45,
   "m_note": "bench comparisons scored so far (VARIANTS plus sel3/sel3m); raise it with every new variant scored",
   "min_bench_shots": 200,
   "te_every_shot": 15,
   "redundant_rel_rms": 0.001,
   "anchor": {"cache": "c8_cache", "analogue": "sym", "mast_S": 0.7352, "diiid_S": 0.8766,
              "source": "c4 993755 MAST S (c8 = c4 pipeline, sol 0.5); ridge DIII-D S 0.9048 from 995984 minus the lam 0.5 shrink cost 0.0282 on 200 val shots"},
-  "analogues": {"c8_cache": "sym", "iter4_cache": "iter4", "c8v_cache": "pv", "iter4v_cache": "iter4pv", "twinv_cache": "twin_cpv", "twin5v_cache": "twin_c5pv"},
+  "analogues": {"c8_cache": "sym", "iter4_cache": "iter4", "c8v_cache": "pv", "iter4v_cache": "iter4pv", "twinv_cache": "twin_cpv", "twin5v_cache": "twin_c5pv", "twinmv_cache": "twin_mpv"},
   "bar": {"G": 0.94, "source": "Development leaderboard 2026-10-15: top G 0.94-0.98 (docs/SUBMISSIONS.md)"}
 }

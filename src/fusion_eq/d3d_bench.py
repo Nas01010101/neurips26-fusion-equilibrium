@@ -76,6 +76,9 @@ VARIANTS = {
     "twin_cpv": {"posthoc": "twin_c"},
     "twin_c5": {"twin": "iter4", "scale": 0.5},
     "twin_c5pv": {"posthoc": "twin_c5"},
+    # per-mode scaled twin (Twin.mode_scale); run each bench half with the model fitted on the other
+    "twin_m": {"twin": "iter4"},
+    "twin_mpv": {"posthoc": "twin_m"},
 }
 
 

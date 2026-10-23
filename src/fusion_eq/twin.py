@@ -158,7 +158,9 @@ class Twin:
 
     def delta(self, phi_h, vacn, scal):
         """(n, nZ*nR) correction to phi, zero mean over the grid (an offset moves no contour)."""
-        return self.reg.predict(self.x(phi_h, vacn, scal)) @ self.phi_basis
+        # mode_scale (optional, per PCA mode) is fitted on real bench shots: the synthetic->real
+        # transfer differs by mode, so one global scale over- or under-corrects some of them
+        return (self.reg.predict(self.x(phi_h, vacn, scal)) * getattr(self, "mode_scale", 1.0)) @ self.phi_basis
 
 
 def _pca(a, k):
