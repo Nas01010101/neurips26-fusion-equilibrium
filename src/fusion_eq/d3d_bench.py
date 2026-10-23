@@ -74,6 +74,8 @@ VARIANTS = {
     "twin_c": {"twin": "iter4", "scale": float(os.environ.get("FUSION_TWIN_C", 1.0))},
     "twin_cs": {"twin": "iter4", "scale": float(os.environ.get("FUSION_TWIN_C", 1.0)), "sym": True},
     "twin_cpv": {"posthoc": "twin_c"},
+    "twin_c5": {"twin": "iter4", "scale": 0.5},
+    "twin_c5pv": {"posthoc": "twin_c5"},
 }
 
 
