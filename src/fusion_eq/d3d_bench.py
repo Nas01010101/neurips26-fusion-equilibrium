@@ -79,6 +79,10 @@ VARIANTS = {
     # per-mode scaled twin (Twin.mode_scale); run each bench half with the model fitted on the other
     "twin_m": {"twin": "iter4"},
     "twin_mpv": {"posthoc": "twin_m"},
+    # per-mode scale rules between twin_c (.39) and twin_m (s), cross-fit the same way: bLL = twin blend
+    # --lam .LL --c .39; k85 = s where the mode's max|cos| with a MAST mode >= .85, else .39; f39 = max(s, .39)
+    **{f"twin_{r}{s}": ({"posthoc": f"twin_{r}"} if s else {"twin": "iter4"})
+       for r in ("b25", "b50", "b75", "k85", "f39") for s in ("", "pv")},
 }
 
 

@@ -34,6 +34,7 @@ python -m fusion_eq.twin fit --data TWM --model TWM.pkl --kind ridge
 python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM.pkl --c 0.39 --out T2   # Final 2
 python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM.pkl --c 0.5 --out T3    # Final 3
 python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM_MODE.pkl --c 1.0 --out T1   # Final 1
+python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM_B75.pkl --c 1.0 --out T4    # blend75
 python -m fusion_eq.mast_vertical T1 T1V --rows ROWS     # same for T2, T3
 python -m fusion_eq.swap_mast D3D_S05_DIR OUT_DIR T1V    # MAST file into the DIII-D base
 ```
@@ -45,6 +46,7 @@ python -m fusion_eq.d3d_bench --files bench300_files.txt --variant iter4 --out B
 FUSION_TWIN_MODEL=TWD.pkl python -m fusion_eq.d3d_bench --files bench300_files.txt --variant twin --out BENCH
 python -m fusion_eq.twin modes --model TWD.pkl --files HALF_A --bench BENCH --out MS_A.pkl   # and HALF_B -> MS_B.pkl
 python -m fusion_eq.twin map --from MS_A.pkl MS_B.pkl --model TWM.pkl --out TWM_MODE.pkl
+python -m fusion_eq.twin blend --model TWM_MODE.pkl --lam 0.75 --c 0.39 --out TWM_B75.pkl
 ```
 `ROWS` holds the private MAST input rows as `NNNN.pkl`, in stream order: `python -m fusion_eq.dump_rows ROWS`.
 `make submission` without `ARGS` builds and validates only. The pointer zip holds a read-only HF token; it is never committed.
@@ -71,6 +73,7 @@ python -m fusion_eq.twin map --from MS_A.pkl MS_B.pkl --model TWM.pkl --out TWM_
 - Solver options (`--profile spitzer`, `--vertical`, `--warm`, `--freeb-iter`) are pipeline variants, not fitted constants.
 - Twin generator priors (`twin.COIL_ERR = 0.03`, `FIELD_ERR = (0.02, 0.005)` T, `EDGE_ERR = (0.03, 0.02)` m, `EDGE_REJECT = 0.15` m, 32 ψ modes, 16 coil-flux modes): assumed magnitudes of coil calibration error, vessel-current error field and Thomson density-edge offset, set before any bench run.
 - Twin scales: global 0.39 (Final 2) is the least-squares slope of the DIII-D EFIT residual on the twin correction (bench half A); 0.5 (Final 3) is a round value inside the flat range 0.3-0.5 of the DIII-D bench; per-mode scales (Final 1) from `twin modes` and `twin map` above. All are fitted on DIII-D train labels.
+- Twin blend lam 0.75 (`TWM_B75.pkl`, each per-mode scale moved a quarter of the way to 0.39): five rules between the global and per-mode scales were fixed on 2026-10-24 before any result (blend lam 0.25/0.5/0.75, per-mode only on modes with a DIII-D overlap |cos| >= 0.85, per-mode floored at 0.39). Eligible: MAST Thomson Te error not above the c8 anchor's on the selection shots (index % 15 == 7, MAST inputs only); all five were. Pick: the largest DIII-D bench300 gain over `sym` of the rule's analogue (cross-fit by half): `twin_b75pv` +0.0616 [+0.0554, +0.0738].
 - `d3d_shrink`: lam 0.5 chosen on the 200 DIII-D validation shots; the means are DIII-D train-fold means.
 
 ## Use of Development-phase scores (disclosed)
