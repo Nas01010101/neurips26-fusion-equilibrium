@@ -92,6 +92,9 @@ VARIANTS = {
     # b75 twin on the closure solve, cross-fit by bench half as twin_b75 is: the clob75v MAST cache
     "clo4_b75": {"twin": "clo4"},
     "clo4_b75pv": {"posthoc": "clo4_b75"},
+    # per-mode twin on the closure solve, cross-fit as twin_m: the clomv MAST cache
+    "clo4_m": {"twin": "clo4"},
+    "clo4_mpv": {"posthoc": "clo4_m"},
 }
 
 
