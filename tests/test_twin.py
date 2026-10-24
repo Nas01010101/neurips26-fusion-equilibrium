@@ -23,3 +23,27 @@ def test_fit_learns_a_linear_residual_and_delta_is_offset_free(tmp_path, monkeyp
     r = pt - ph
     r -= r.mean(1, keepdims=True)
     assert ((r - d) ** 2).sum() < 0.01 * (r ** 2).sum()
+
+
+def test_mode_scale_weights_each_mode_and_map_follows_overlap(tmp_path):
+    rng = np.random.default_rng(1)
+    basis = np.linalg.qr(rng.normal(size=(30, 3)))[0].T
+    tw = twin.Twin(basis, np.zeros((1, 30)), 0.0, 1.0, None)
+
+    class Reg:
+        def predict(self, x):
+            return np.ones((len(x), 3))
+    tw.reg = Reg()
+    tw.x = lambda ph, vn, sc: np.zeros((len(ph), 1))
+    one = tw.delta(np.zeros((1, 30)), None, None)
+    tw.mode_scale = np.array([1.0, 0.0, 0.5])
+    np.testing.assert_allclose(tw.delta(np.zeros((1, 30)), None, None), (np.array([[1.0, 0.0, 0.5]]) @ basis))
+    assert not np.allclose(one, tw.delta(np.zeros((1, 30)), None, None))
+    # target basis = source modes 2, 0, 1: the mapped scales follow the matching source mode
+    import pickle
+    del tw.x, tw.reg
+    pickle.dump(tw, open(tmp_path / "a.pkl", "wb"))
+    tgt = twin.Twin(basis[[2, 0, 1]], np.zeros((1, 30)), 0.0, 1.0, None)
+    pickle.dump(tgt, open(tmp_path / "t.pkl", "wb"))
+    np.testing.assert_allclose(twin.map_scale([tmp_path / "a.pkl"], tmp_path / "t.pkl", tmp_path / "o.pkl"),
+                               [0.5, 1.0, 0.0], atol=1e-12)

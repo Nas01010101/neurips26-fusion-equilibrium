@@ -16,6 +16,8 @@ transfer test: train on synthetic DIII-D from the bench shots' inputs, score on 
 
     PYTHONPATH=src uv run python -m fusion_eq.twin gen --machine d3d --files LIST --out DIR
     PYTHONPATH=src uv run python -m fusion_eq.twin fit --data DIR --model M.pkl
+    PYTHONPATH=src uv run python -m fusion_eq.twin modes --model M.pkl --files LIST --bench DIR --out MS.pkl
+    PYTHONPATH=src uv run python -m fusion_eq.twin map --from MS_A.pkl MS_B.pkl --model MAST.pkl --out OUT.pkl
 """
 import argparse
 import pickle
@@ -207,6 +209,42 @@ def fit(data, model_out, kind="mlp", seed=0):
     return tw
 
 
+def mode_scale(model, files, bench, out):
+    """Per-mode scale for `model`: least-squares slope of the real residual (EFIT - iter4) on the
+    scale-1 twin correction, per PCA mode, clipped to [0, 1]. `bench` holds the d3d_bench `iter4`
+    and `twin` (scale 1, same model) dirs for the shots in `files`. Labels are DIII-D train EFIT."""
+    from .d3d_bench import frames_of, load_row
+    tw = pickle.load(open(model, "rb"))
+    B = tw.phi_basis
+    P, Q = [], []
+    for f in [l.strip() for l in open(files) if l.strip()]:
+        st = Path(f).name[:-8]
+        p0 = np.load(Path(bench) / "iter4" / f"{st}.npz")["psirz"].astype(np.float64)
+        p1 = np.load(Path(bench) / "twin" / f"{st}.npz")["psirz"].astype(np.float64)
+        row = load_row(f)
+        gt = np.stack([np.asarray(row["efit_psirz"][k], float) for k in frames_of(len(row["efit_times"]))])
+        r, d = (gt - p0).reshape(len(gt), -1), (p1 - p0).reshape(len(gt), -1)
+        P.append((r - r.mean(1, keepdims=True)) @ B.T)
+        Q.append((d - d.mean(1, keepdims=True)) @ B.T)
+    P, Q = np.vstack(P), np.vstack(Q)
+    tw.mode_scale = np.clip((P * Q).sum(0) / ((Q * Q).sum(0) + 1e-30), 0, 1)
+    pickle.dump(tw, open(out, "wb"))
+    return tw.mode_scale
+
+
+def map_scale(sources, target, out):
+    """Carry per-mode scales from DIII-D twins (`sources`, averaged) to another twin's PCA modes,
+    weighting each source mode by its squared overlap with the target mode on the shared grid."""
+    tws = [pickle.load(open(s, "rb")) for s in sources]
+    s = np.mean([t.mode_scale for t in tws], 0)
+    unit = lambda b: b / np.linalg.norm(b, axis=1, keepdims=True)
+    tw = pickle.load(open(target, "rb"))
+    c2 = (unit(tws[0].phi_basis) @ unit(tw.phi_basis).T) ** 2
+    tw.mode_scale = (c2 * s[:, None]).sum(0) / c2.sum(0)
+    pickle.dump(tw, open(out, "wb"))
+    return tw.mode_scale
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -231,7 +269,25 @@ def main() -> int:
     p.add_argument("--c", type=float, required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--workers", type=int, default=4)
+    m = sub.add_parser("modes", help="d3d: per-mode scale from a bench run of the scale-1 twin")
+    m.add_argument("--model", required=True)
+    m.add_argument("--files", required=True)
+    m.add_argument("--bench", required=True)
+    m.add_argument("--out", required=True)
+    mp = sub.add_parser("map", help="carry per-mode scales from DIII-D twins to another twin")
+    mp.add_argument("--from", dest="sources", nargs="+", required=True)
+    mp.add_argument("--model", required=True)
+    mp.add_argument("--out", required=True)
     a = ap.parse_args()
+    if a.cmd in ("modes", "map"):
+        from fusion_eq import twin  # pickles must name fusion_eq.twin.Twin, not __main__
+        if a.cmd == "modes":
+            from .d3d_bench import _init
+            _init()
+            print(np.round(twin.mode_scale(a.model, a.files, a.bench, a.out), 2).tolist())
+        else:
+            print(np.round(twin.map_scale(a.sources, a.model, a.out), 2).tolist())
+        return 0
     from .d3d_bench import _init
     _init()
     if a.cmd == "fit":  # through the package so the pickle names fusion_eq.twin.Twin, not __main__
