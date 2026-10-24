@@ -31,17 +31,17 @@ python -m fusion_eq.d3d_shrink D3D.npz D3D_S05.npz --lam 0.5   # q95/betaN shrin
 python -m fusion_eq.mast_batch --sol 0.5 --freeb-iter 4 --cache IT4                  # MAST solve
 python -m fusion_eq.twin gen --machine mast --rows ROWS --sol-from IT4 --out TWM      # synthetic MAST
 python -m fusion_eq.twin fit --data TWM --model TWM.pkl --kind ridge
-python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM.pkl --c 0.39 --out T2   # Final 2
-python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM.pkl --c 0.5 --out T3    # Final 3
-python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM_MODE.pkl --c 1.0 --out T1   # Final 1
-python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM_B75.pkl --c 1.0 --out T4    # blend75
-python -m fusion_eq.closure data --files TRAIN_LIST --exclude bench300_files.txt --n 1500 --out CLD.npz   # DIII-D train frames
+python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM_MODE.pkl --c 1.0 --out T1   # Final 1: per-mode scales
+python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM_B75.pkl --c 1.0 --out T2    # Final 2: blended scales
+python -m fusion_eq.closure data --files d3d_train_files.txt --exclude bench300_files.txt --n 1500 --out CLD.npz   # DIII-D train frames
 python -m fusion_eq.closure fit --data CLD.npz --model CLO.pkl
 python -m fusion_eq.mast_batch --sol 0.5 --freeb-iter 4 --sol-from IT4 --closure CLO.pkl --cache CL   # closure solve
-python -m fusion_eq.twin apply --cache CL --rows ROWS --model TWM_B75.pkl --c 1.0 --out T5    # closure + blend75
+python -m fusion_eq.twin apply --cache CL --rows ROWS --model TWM_B75.pkl --c 1.0 --out T3    # Final 3: closure + blended scales
+python -m fusion_eq.mast_beta T1 --rows ROWS --win 13   # same for T2; Final 3 keeps BETA_SMOOTH 5
 python -m fusion_eq.mast_vertical T1 T1V --rows ROWS     # same for T2, T3
 python -m fusion_eq.swap_mast D3D_S05_DIR OUT_DIR T1V    # MAST file into the DIII-D base
 ```
+Shipped weights: `TWM_MODE.pkl` = `weights/twin-mast-mode.pkl`, `TWM_B75.pkl` = `weights/twin-mast-b75.pkl`, `CLO.pkl` = `weights/closure-d3d-gbm.pkl`.
 `TWM_MODE.pkl` carries the per-mode scales, fitted on the DIII-D bench (300 train shots in `bench300_files.txt`, halves A = odd lines, B = even lines):
 ```
 python -m fusion_eq.twin gen --machine d3d --files bench300_files.txt --out TWD --frames 8 --draws 3
@@ -52,6 +52,7 @@ python -m fusion_eq.twin modes --model TWD.pkl --files HALF_A --bench BENCH --ou
 python -m fusion_eq.twin map --from MS_A.pkl MS_B.pkl --model TWM.pkl --out TWM_MODE.pkl
 python -m fusion_eq.twin blend --model TWM_MODE.pkl --lam 0.75 --c 0.39 --out TWM_B75.pkl
 ```
+Shot lists are in `docs/lists/` as shot ids in the order used (the closure draws its 1500 shots with a seeded permutation of `d3d_train.txt`, so the order matters); turn them into parquet paths with `sed "s|^|$FUSION_DATA_DIR/diii_d_train/|; s|$|.parquet|" docs/lists/bench300.txt > bench300_files.txt`, and the same for `d3d_train.txt` -> `d3d_train_files.txt`.
 `ROWS` holds the private MAST input rows as `NNNN.pkl`, in stream order: `python -m fusion_eq.dump_rows ROWS`.
 `make submission` without `ARGS` builds and validates only. The pointer zip holds a read-only HF token; it is never committed.
 
@@ -70,9 +71,9 @@ python -m fusion_eq.twin blend --model TWM_MODE.pkl --lam 0.75 --c 0.39 --out TW
 - Shape priors (elongation 1.8, triangularity 0.4) are generic spherical-tokamak values.
 
 ## MAST constants (no MAST label; source per constant)
-- `mast.SOL_SCALE = 0.5`, `mast.SOL_SCALES = (0.5, 0.75, 1.0)`: the shipped solenoid signal reads 2x the FAIR-MAST level-2 pf_active current, an open convention question on the challenge Data page. `pick_sol_scale` picks one of the three per shot by matching the solved inner LCFS edge to the Thomson inner edge (MAST inputs only).
+- `mast.SOL_SCALE = 0.5`, `mast.SOL_SCALES = (0.5, 0.75, 1.0)`: the shipped solenoid signal reads 2x the FAIR-MAST level-2 pf_active current, an open convention question on the challenge Data page. `pick_sol_scale` picks one of the three per shot by matching the solved inner LCFS edge to the Thomson inner edge (MAST inputs only); it lowered the Development MAST score (c6), so every Final runs `--sol 0.5`.
 - `mast.WALL_R = 0.20` m: inner edge of MAST's design plasma, R - a = 0.85 - 0.65 m (Sykes et al., IAEA FEC 2000, OV4/1); centre-column armour per Edlington et al., Rev. Sci. Instrum. 72, 421 (2001).
-- `mast.SMOOTH = 5`, `mast.BETA_SMOOTH`: running-mean windows chosen by leave-one-out CV on the Thomson pulse time base of all 1206 public test shots (`python -m fusion_eq.mast_smooth_cv`); the edge series sets SMOOTH, the volume-averaged pressure sets BETA_SMOOTH, each at the window with the lowest median over shots of per-shot normalised error (5 pulses = 21 ms -> 5 EFIT frames for both). Label-free test-time adaptation under rule 3. `python -m fusion_eq.mast_beta CACHE` rewrites betaN on a solved cache after a BETA_SMOOTH change (betaN does not depend on the solved flux).
+- `mast.SMOOTH = 5`, `mast.BETA_SMOOTH`: running-mean windows chosen by leave-one-out CV on the Thomson pulse time base of all 1206 public test shots (`python -m fusion_eq.mast_smooth_cv`); the edge series sets SMOOTH, the volume-averaged pressure sets BETA_SMOOTH, each at the window with the lowest median over shots of per-shot normalised error (5 pulses = 21 ms -> 5 EFIT frames for both). Pooling the pressure errors over shots instead gives 17 pulses -> 13 frames; Finals 1 and 2 ship betaN at 13 (`mast_beta --win 13`), Final 3 at 5. Label-free test-time adaptation under rule 3. `python -m fusion_eq.mast_beta CACHE` rewrites betaN on a solved cache after a BETA_SMOOTH change (betaN does not depend on the solved flux).
 - `mast_vertical.Z_MAX = 0.15` m: search bound for the force-balance vertical shift, from MAST vertical-stability physics (Windridge et al., PPCF 53, 035018 (2011); O'Gorman et al., Nucl. Fusion 54, 082002 (2014)).
 - Solver options (`--profile spitzer`, `--vertical`, `--warm`, `--freeb-iter`) are pipeline variants, not fitted constants.
 - Twin generator priors (`twin.COIL_ERR = 0.03`, `FIELD_ERR = (0.02, 0.005)` T, `EDGE_ERR = (0.03, 0.02)` m, `EDGE_REJECT = 0.15` m, 32 ψ modes, 16 coil-flux modes): assumed magnitudes of coil calibration error, vessel-current error field and Thomson density-edge offset, set before any bench run.
@@ -82,7 +83,7 @@ python -m fusion_eq.twin blend --model TWM_MODE.pkl --lam 0.75 --c 0.39 --out TW
 - `d3d_shrink`: lam 0.5 chosen on the 200 DIII-D validation shots; the means are DIII-D train-fold means.
 
 ## Use of Development-phase scores (disclosed)
-Development-phase scores of our own genuine candidate submissions were used to compare and select MAST pipeline variants (rule 3, feedback clause). Two Development submissions (P1, P2 in `SUBMISSIONS.md`) rescaled our predictions to measure label statistics; under the 2026-10-04 probe clause those statistics count as MAST data, so no constant fitted to them, and nothing derived from them, enters any Final submission. The fitting code was removed from the repository. P1 also applied the force-balance vertical shift at its physics strength (no scale factor); all three Finals use that shift, selected on the DIII-D bench (300 train shots, dS +0.0022, 95% CI [+0.0017, +0.0027]), not on P1's score. Early in Development (through c3) MAST variants were also scored on the starter's 3 labelled demo shots; the scorer (`mast_score.py`) was removed. The four constants first picked on them now come from the sources above: SMOOTH (5, unchanged) and BETA_SMOOTH (9 -> 5) from the CV; WALL_R (0.20 m) from MAST design geometry; SOL_SCALE (0.5) from the signal convention, now one of three per-shot choices made against Thomson.
+Development-phase scores of our own genuine candidate submissions were used to compare and select MAST pipeline variants (rule 3, feedback clause). Two Development submissions (P1, P2 in `SUBMISSIONS.md`) rescaled our predictions to measure label statistics; under the 2026-10-04 probe clause those statistics count as MAST data, so no constant fitted to them, and nothing derived from them, enters any Final submission. The fitting code was removed from the repository. P1 also applied the force-balance vertical shift at its physics strength (no scale factor); all three Finals use that shift, selected on the DIII-D bench (300 train shots, dS +0.0022, 95% CI [+0.0017, +0.0027]), not on P1's score. Early in Development (through c3) MAST variants were also scored on the starter's 3 labelled demo shots; the scorer (`mast_score.py`) was removed. The four constants first picked on them now come from the sources above: SMOOTH (5, unchanged) and BETA_SMOOTH (9 -> 13 in Finals 1-2, 5 in Final 3) from the CV; WALL_R (0.20 m) from MAST design geometry; SOL_SCALE (0.5) from the signal convention.
 
 ## Validation
 - DIII-D, 200 held-out train shots, official scorer: S = 0.903 before the shrink, 0.875 after (`ridge32-ipx-clip-v200` in `$RUNS/results.jsonl`, `final/shrink_val.json`).

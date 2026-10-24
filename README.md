@@ -13,13 +13,14 @@ src/fusion_eq/
   d3d_shrink.py   q95/betaN shrink toward train means (DIII-D file)
   freeb.py, greens.py, mast*.py   MAST free-boundary Grad-Shafranov solve and post-steps
   mast_vertical.py   force-balance vertical shift
-  twin.py      synthetic-twin correction: gen, fit, modes, map, apply
+  twin.py      synthetic-twin correction: gen, fit, modes, map, blend, apply
+  closure.py   learned current-profile exponent for the MAST solve (DIII-D labels only)
   d3d_bench.py    MAST pipeline variants scored on DIII-D train shots
   te_check_mast.py, final_gate.py   Thomson Te check and Final upload gate
   swap_mast.py    MAST predictions into a DIII-D submission
 vendor/starter official loaders, errata fixes, scorer (pinned commit, gitignored)
 docs/RULES.md rules and deadlines     docs/STRATEGY.md plan and risks
-docs/REPRODUCE.md pinned inputs, entrypoints, compute   docs/weights.sha256 DIII-D ridge hash
+docs/REPRODUCE.md pinned inputs, entrypoints, compute   docs/weights.sha256 hashes of weights/*.pkl
 ```
 
 ## Commands
