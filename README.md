@@ -10,6 +10,13 @@ src/fusion_eq/
   models.py    model registry; PCA + Ridge baseline
   splits.py    shot-level folds
   submit.py    npz writer for the Codabench contract
+  d3d_shrink.py   q95/betaN shrink toward train means (DIII-D file)
+  freeb.py, greens.py, mast*.py   MAST free-boundary Grad-Shafranov solve and post-steps
+  mast_vertical.py   force-balance vertical shift
+  twin.py      synthetic-twin correction: gen, fit, modes, map, apply
+  d3d_bench.py    MAST pipeline variants scored on DIII-D train shots
+  te_check_mast.py, final_gate.py   Thomson Te check and Final upload gate
+  swap_mast.py    MAST predictions into a DIII-D submission
 vendor/starter official loaders, errata fixes, scorer (pinned commit, gitignored)
 docs/RULES.md rules and deadlines     docs/STRATEGY.md plan and risks
 docs/REPRODUCE.md pinned inputs, entrypoints, compute   docs/weights.sha256 DIII-D ridge hash
@@ -24,4 +31,4 @@ make score ARGS="--n-shots 20 --skip 7000"
 ```
 Full pipeline (cache, train, mast, submission): docs/REPRODUCE.md. License: MIT.
 
-Deadlines: Phase 1 ends Oct 18, Phase 2 (blind, 3 submissions) Oct 19-26.
+Final phase: 3 blind submissions, closes 2026-10-26 00:00 UTC. Submitted pipelines: docs/METHODS.md.
