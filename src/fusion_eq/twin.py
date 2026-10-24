@@ -245,6 +245,15 @@ def map_scale(sources, target, out):
     return tw.mode_scale
 
 
+def blend_scale(model, lam, c, out):
+    """Per-mode scales pulled toward one global scale: lam * mode_scale + (1 - lam) * c.
+    MAST midplane Te rejects the fully mapped scales (lam 1) and accepts the global c (lam 0)."""
+    tw = pickle.load(open(model, "rb"))
+    tw.mode_scale = lam * np.asarray(tw.mode_scale, float) + (1 - lam) * c
+    pickle.dump(tw, open(out, "wb"))
+    return tw.mode_scale
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -278,15 +287,22 @@ def main() -> int:
     mp.add_argument("--from", dest="sources", nargs="+", required=True)
     mp.add_argument("--model", required=True)
     mp.add_argument("--out", required=True)
+    bl = sub.add_parser("blend", help="per-mode scales pulled toward a global scale")
+    bl.add_argument("--model", required=True)
+    bl.add_argument("--lam", type=float, required=True)
+    bl.add_argument("--c", type=float, required=True)
+    bl.add_argument("--out", required=True)
     a = ap.parse_args()
-    if a.cmd in ("modes", "map"):
+    if a.cmd in ("modes", "map", "blend"):
         from fusion_eq import twin  # pickles must name fusion_eq.twin.Twin, not __main__
         if a.cmd == "modes":
             from .d3d_bench import _init
             _init()
             print(np.round(twin.mode_scale(a.model, a.files, a.bench, a.out), 2).tolist())
-        else:
+        elif a.cmd == "map":
             print(np.round(twin.map_scale(a.sources, a.model, a.out), 2).tolist())
+        else:
+            print(np.round(twin.blend_scale(a.model, a.lam, a.c, a.out), 2).tolist())
         return 0
     from .d3d_bench import _init
     _init()
