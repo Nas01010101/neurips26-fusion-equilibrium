@@ -271,7 +271,7 @@ def pick_sol_scale(row, scales=SOL_SCALES, n_frames: int = 3, kappa: float = 1.8
 
 
 def predict_mast(row, sol_scale: float | str = SOL_SCALE, kappa: float = 1.8, delta: float = 0.4,
-                 alpha: float = 1.0, frac: float = 0.3, ti_over_te: float = 1.0,
+                 alpha=1.0, frac: float = 0.3, ti_over_te: float = 1.0,
                  q_from_psi: bool = True, freeb_iter: int = 8, beta0: float = -1.0,
                  fast_ion_frac: float = FAST_ION_FRAC, profile: str = "power",
                  vertical: bool = False, warm: bool = False) -> dict:
@@ -291,6 +291,7 @@ def predict_mast(row, sol_scale: float | str = SOL_SCALE, kappa: float = 1.8, de
     rin, rout = thomson_edges(row, t, frac)
     if profile == "spitzer":
         R_ch, te = thomson_te(row, t)
+    alphas = np.broadcast_to(np.asarray(alpha, float), t.shape)
     psi = vac.copy()
     prev = None  # beta0 of the last solved frame, for the warm start
     beta0s = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5)
@@ -298,6 +299,7 @@ def predict_mast(row, sol_scale: float | str = SOL_SCALE, kappa: float = 1.8, de
         if not (np.isfinite(rin[k]) and rout[k] > rin[k]):
             prev = None
             continue
+        alpha = alphas[k]
         J = shaped_current(R, Z, (rin[k] + rout[k]) / 2, (rout[k] - rin[k]) / 2, kappa, delta,
                            alpha=alpha)
         kw = {"vertical": vertical}

@@ -67,9 +67,14 @@ def _work(args):
     from .mast import predict_mast
     t0 = time.time()
     kw = dict(KW)
+    closure = kw.pop("closure", None)
     prev = Path(SOL_FROM or "") / p.name
-    if SOL_FROM and prev.exists() and float(np.load(prev)["sol_scale"]) > 0:  # -1 marks a fallback shot
-        kw["sol_scale"] = float(np.load(prev)["sol_scale"])
+    base = np.load(prev) if SOL_FROM and prev.exists() else None  # one open: each costs seconds under on-access AV scans
+    if base is not None and float(base["sol_scale"]) > 0:  # -1 marks a fallback shot
+        kw["sol_scale"] = float(base["sol_scale"])
+        if closure:  # learned closure: per-frame alpha, Thomson put in flux coordinates on the base solve
+            from .closure import mast_alpha
+            kw["alpha"] = mast_alpha(row, base["psirz"], closure)
     try:
         out = predict_mast(row, **kw)
     except Exception:
@@ -113,8 +118,11 @@ def main() -> int:
     ap.add_argument("--vertical", action="store_true", help="in-loop force-balance vertical shift")
     ap.add_argument("--warm", action="store_true", help="search beta0 near the previous frame's")
     ap.add_argument("--freeb-iter", type=int, default=8, help="Picard iterations per free-boundary solve")
+    ap.add_argument("--closure", default=None, help="closure model pickle (closure fit); needs --sol-from as the base solve")
     a = ap.parse_args()
     kw = {"profile": a.profile, "vertical": a.vertical, "warm": a.warm, "freeb_iter": a.freeb_iter}
+    if a.closure:
+        kw["closure"] = a.closure
     if a.sol:
         kw["sol_scale"] = a.sol if a.sol == "thomson" else float(a.sol)
     _init(a.cache, kw, a.sol_from)

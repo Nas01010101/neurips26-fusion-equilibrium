@@ -59,6 +59,12 @@ VARIANTS = {
     "iter1_e": {"n_iter": 1, "edge_err": True},
     "iter0": {"n_iter": 0},  # J0 alone: the shape prior with no Picard pass
     "iter0_e": {"n_iter": 0, "edge_err": True},
+    # profile from the frame's own EFIT current (closure.fit_row): ceiling of a learned closure
+    "orca4": {"n_iter": 4, "oracle": "a"},
+    "orc4": {"n_iter": 4, "oracle": "ab"},
+    # learned closure (closure fit, pickle in FUSION_CLOSURE_MODEL): alpha per frame from Thomson,
+    # Ip and TF features, Thomson put in flux coordinates on the base variant's solve
+    "clo4": {"n_iter": 4, "oracle": "model", "base": "iter4"},
     # post-hoc mast_vertical on a solved variant, as the c8v / iter4v MAST caches are built
     "pv": {"posthoc": "sym"},
     "iter4pv": {"posthoc": "iter4"},
@@ -83,6 +89,9 @@ VARIANTS = {
     # --lam .LL --c .39; k85 = s where the mode's max|cos| with a MAST mode >= .85, else .39; f39 = max(s, .39)
     **{f"twin_{r}{s}": ({"posthoc": f"twin_{r}"} if s else {"twin": "iter4"})
        for r in ("b25", "b50", "b75", "k85", "f39") for s in ("", "pv")},
+    # b75 twin on the closure solve, cross-fit by bench half as twin_b75 is: the clob75v MAST cache
+    "clo4_b75": {"twin": "clo4"},
+    "clo4_b75pv": {"posthoc": "clo4_b75"},
 }
 
 
@@ -156,13 +165,27 @@ def twin_correct(row, frames, p, scale=1.0, sym=False):
 
 
 def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=None, n_iter=8, edge_err=False,
-            te_select=None):
-    """psi (len(frames), nZ, nR) in DIII-D's stored sign, before the offset."""
+            te_select=None, oracle=None, base=None):
+    """psi (len(frames), nZ, nR) in DIII-D's stored sign, before the offset. `oracle` takes the
+    profile from the frame's own EFIT current (closure.fit_row): "a" sets alpha and keeps the
+    edge-matched beta0 scan, "ab" sets beta0 too. It bounds what a profile closure can add.
+    "model" sets alpha from the learned closure on features read off `base`, a solve of the same frames."""
     from .freeb import solve_matched
     from .mast import shaped_current
     R, Z, t, vac, ip, s, mc = vacuum(row, frames)
     out = s * vac
+    if oracle == "model":
+        from .closure import d3d_features, predict_alpha
+        orc = predict_alpha(os.environ["FUSION_CLOSURE_MODEL"], d3d_features(row, frames, base))[0][:, None]
+    elif oracle:
+        from .closure import fit_row
+        orc = fit_row(row, frames)
     for j, k in enumerate(frames):
+        a, kw = alpha, {}
+        if oracle and np.isfinite(orc[j, 0]):
+            a = orc[j, 0]
+            if oracle == "ab":
+                kw["beta0s"] = (orc[j, 1],)
         rin, rout = edges(row, k)
         if edge_err:  # same draw for every variant: seeded by shot and frame
             e = np.random.default_rng([int(row["efit_times"][0] * 1e6) % 2**31, int(k)])
@@ -170,7 +193,7 @@ def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=No
                          rout - EDGE_ERR[0] + EDGE_ERR[1] * e.standard_normal())
         if not (np.isfinite(rin) and np.isfinite(ip[j])):
             continue
-        J = shaped_current(R, Z, (rin + rout) / 2, (rout - rin) / 2, kappa, delta, alpha=alpha)
+        J = shaped_current(R, Z, (rin + rout) / 2, (rout - rin) / 2, kappa, delta, alpha=a)
         sel = None
         if te_select:
             from .te_check import frame_err, thomson_points
@@ -183,7 +206,7 @@ def predict(row, frames, vertical=False, alpha=1.0, kappa=1.8, delta=0.4, dbz=No
                 # hybrid scales: Thomson edge sd ~0.02 m (EDGE_ERR); te spread between beta0s ~0.01
                 return te + 1e-3 * edge if te_select == "te" else te / 0.01 + edge / 0.02
         out[j] = solve_matched(s * vac[j], J, R, Z, abs(ip[j]), mc, mc.astype(np.float64), rout,
-                               alpha=alpha, vertical=vertical, n_iter=n_iter, select=sel,
+                               alpha=a, vertical=vertical, n_iter=n_iter, select=sel, **kw,
                                **({"r_in": rin, "dbz": dbz} if dbz else {}))[0]
     return -out  # DIII-D stores the axis as a minimum
 
@@ -217,7 +240,12 @@ def _work(args):
         assert (base["frames"] == frames).all()
         p = posthoc_vertical(row, frames, base["psirz"].astype(np.float64))
     else:
-        p = predict(row, frames, **cfg)
+        kw = dict(cfg)
+        if "base" in kw:
+            b = np.load(Path(out).parent / kw["base"] / dst.name)
+            assert (b["frames"] == frames).all()
+            kw["base"] = b["psirz"].astype(np.float64)
+        p = predict(row, frames, **kw)
     p = p + (psi_gt - p).mean(axis=(1, 2), keepdims=True)
     save_npz(dst, psirz=p.astype(np.float32), frames=frames)
 

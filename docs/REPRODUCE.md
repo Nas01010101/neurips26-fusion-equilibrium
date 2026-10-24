@@ -35,6 +35,10 @@ python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM.pkl --c 0.39 
 python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM.pkl --c 0.5 --out T3    # Final 3
 python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM_MODE.pkl --c 1.0 --out T1   # Final 1
 python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM_B75.pkl --c 1.0 --out T4    # blend75
+python -m fusion_eq.closure data --files TRAIN_LIST --exclude bench300_files.txt --n 1500 --out CLD.npz   # DIII-D train frames
+python -m fusion_eq.closure fit --data CLD.npz --model CLO.pkl
+python -m fusion_eq.mast_batch --sol 0.5 --freeb-iter 4 --sol-from IT4 --closure CLO.pkl --cache CL   # closure solve
+python -m fusion_eq.twin apply --cache CL --rows ROWS --model TWM_B75.pkl --c 1.0 --out T5    # closure + blend75
 python -m fusion_eq.mast_vertical T1 T1V --rows ROWS     # same for T2, T3
 python -m fusion_eq.swap_mast D3D_S05_DIR OUT_DIR T1V    # MAST file into the DIII-D base
 ```
@@ -74,6 +78,7 @@ python -m fusion_eq.twin blend --model TWM_MODE.pkl --lam 0.75 --c 0.39 --out TW
 - Twin generator priors (`twin.COIL_ERR = 0.03`, `FIELD_ERR = (0.02, 0.005)` T, `EDGE_ERR = (0.03, 0.02)` m, `EDGE_REJECT = 0.15` m, 32 ψ modes, 16 coil-flux modes): assumed magnitudes of coil calibration error, vessel-current error field and Thomson density-edge offset, set before any bench run.
 - Twin scales: global 0.39 (Final 2) is the least-squares slope of the DIII-D EFIT residual on the twin correction (bench half A); 0.5 (Final 3) is a round value inside the flat range 0.3-0.5 of the DIII-D bench; per-mode scales (Final 1) from `twin modes` and `twin map` above. All are fitted on DIII-D train labels.
 - Twin blend lam 0.75 (`TWM_B75.pkl`, each per-mode scale moved a quarter of the way to 0.39): five rules between the global and per-mode scales were fixed on 2026-10-24 before any result (blend lam 0.25/0.5/0.75, per-mode only on modes with a DIII-D overlap |cos| >= 0.85, per-mode floored at 0.39). Eligible: MAST Thomson Te error not above the c8 anchor's on the selection shots (index % 15 == 7, MAST inputs only); all five were. Pick: the largest DIII-D bench300 gain over `sym` of the rule's analogue (cross-fit by half): `twin_b75pv` +0.0616 [+0.0554, +0.0738].
+- Learned closure (`closure.py`, `CLO.pkl` = `weights/closure-d3d-gbm.pkl`): per-frame alpha of the solver's current family. Target alpha* = nnls fit of that family to EFIT's J_phi inside psiN 0.95 (alpha grid 0.2-4.0) on 1500 DIII-D train shots outside bench300, 10 frames each; DIII-D labels only. Model: HistGradientBoosting on log alpha* (300 iterations, learning rate 0.05, 15 leaves, 50 samples per leaf, l2 1.0), 5 fits bagged over a shot bootstrap; settings fixed before any bench run. Features: Theil-Sen slopes of log Te and log ne over psiN 0-0.6, log q_cyl (kappa 1.8 = the solver's shape prior), log beta_p from Thomson pressure, t / tau_R and (dIp/dt / Ip) tau_R, with tau_R the Spitzer resistive time (Wesson, Tokamaks, 4th ed., sec. 2.16). On MAST and on the bench the features are read off the iter4 solve's flux. The feature set was fixed by EFIT-vs-iter4 agreement on 60 bench shots (two outer-gradient features dropped at r 0.08 and 0.12), not by bench score. Inputs are clipped to the training range; frames missing a feature keep alpha 1.
 - `d3d_shrink`: lam 0.5 chosen on the 200 DIII-D validation shots; the means are DIII-D train-fold means.
 
 ## Use of Development-phase scores (disclosed)
