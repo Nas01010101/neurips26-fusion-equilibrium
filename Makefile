@@ -1,4 +1,5 @@
 STARTER_SHA := 4b6af065cf5ce0db88f2cac4546a9ac5c6147f26
+DATA ?= /Volumes/PortableSSD/datasets/fusion-equilibrium
 
 .PHONY: setup vendor test data-train score cache train mast submission weights
 setup:
@@ -15,7 +16,7 @@ test:
 data-train:
 	uvx --from huggingface_hub hf download Sophelio/fusion-equilibrium-challenge \
 	  --repo-type dataset --include "data/diii_d_train/*" \
-	  --local-dir /Volumes/PortableSSD/datasets/fusion-equilibrium
+	  --local-dir $(DATA)
 
 # Official scorer on held-out train shots: make score ARGS="--n-shots 20 --skip 7000"
 score:
@@ -28,7 +29,7 @@ TRAIN := --model pca_ridge --stride 6 --n-val 200
 
 # DIII-D train shots -> per-shot feature npz
 cache:
-	$(PY) fusion_eq.data /Volumes/PortableSSD/datasets/fusion-equilibrium/data/diii_d_train $(RUNS)/cache
+	$(PY) fusion_eq.data $(DATA)/data/diii_d_train $(RUNS)/cache
 
 # the DIII-D ridge, pickled to $(RUNS)/models
 train:

@@ -1,6 +1,6 @@
 {
-  "diiid_sha256": "b74dda65ac034bb246cc860b4bec098d87525c3e961d0d58900b9b971f255bba",
-  "diiid_note": "ridge32-ipx-clip-v200 private DIII-D file after fusion_eq.d3d_shrink --lam 0.5 (was 314317a8), byte-identical in every Final",
+  "diiid_sha256": "ea67ad7fda61370da965f56f703981ae5f5d626626a0b4ab99dbd8d9eb559a6d",
+  "diiid_note": "ridge32-ipx-clip-v200 private DIII-D file after fusion_eq.d3d_shrink --lam 0.4 (unshrunk 314317a8, lam 0.5 b74dda65), byte-identical in every Final",
   "n_mast": 1205,
   "banned": ["envelope", "c4z", "probe", "lb_calibrate", "994489", "994472", "k\\*", "0\\.58", "\\bp[123]\\b"],
   "alpha": 0.01,
@@ -9,8 +9,8 @@
   "min_bench_shots": 200,
   "te_every_shot": 15,
   "redundant_rel_rms": 0.001,
-  "anchor": {"cache": "c8_cache", "analogue": "sym", "mast_S": 0.7352, "diiid_S": 0.8766,
-             "source": "c4 993755 MAST S (c8 = c4 pipeline, sol 0.5); ridge DIII-D S 0.9048 from 995984 minus the lam 0.5 shrink cost 0.0282 on 200 val shots"},
+  "anchor": {"cache": "c8_cache", "analogue": "sym", "mast_S": 0.7352, "diiid_S": 0.8632,
+             "source": "c4 993755 MAST S (c8 = c4 pipeline, sol 0.5); ridge DIII-D S 0.9048 from 995984 minus the lam 0.4 shrink cost 0.0416 on 200 val shots (final/shrink_val.json)"},
   "analogues": {"c8_cache": "sym", "iter4_cache": "iter4", "c8v_cache": "pv", "iter4v_cache": "iter4pv", "twinv_cache": "twin_cpv", "twin5v_cache": "twin_c5pv", "twinmv_cache": "twin_mpv", "twinb75v_cache": "twin_b75pv", "clob75v_cache": "clo4_b75pv", "clomv_cache": "clo4_mpv"},
   "bar": {"G": 0.94, "source": "Development leaderboard 2026-10-15: top G 0.94-0.98 (docs/SUBMISSIONS.md)"}
 }
