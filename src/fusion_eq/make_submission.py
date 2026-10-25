@@ -65,7 +65,10 @@ def main() -> int:
     global _model
     use_starter()
     import submission_skeleton as sk
-    from . import models_torch  # noqa: F401  registers PcaMlp so the pickles resolve
+    try:  # registers PcaMlp so MLP pickles resolve; the shipped ridge needs no torch
+        from . import models_torch  # noqa: F401
+    except ImportError:
+        pass
 
     # FUSION_DIIID_MODELS=tag[,tag] swaps the DIII-D model per build; several tags are averaged.
     tags = os.environ.get("FUSION_DIIID_MODELS", ",".join(DIIID_MODELS)).split(",")

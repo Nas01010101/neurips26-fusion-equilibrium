@@ -9,7 +9,7 @@ MAST: zero-shot physics predictor (coil Green's functions, free-boundary solve, 
 | Code | this repository, commit of the submitted build |
 | Starter kit | `Sophelio/fusion-equilibrium-challenge-starter` @ `4b6af065cf5ce0db88f2cac4546a9ac5c6147f26` (`make vendor`) |
 | Data | HF dataset `Sophelio/fusion-equilibrium-challenge`: `data/diii_d_train/*` for training; public test splits streamed by the starter's `submission_skeleton.py`; Final inputs from `ganatma/fusion-equilibrium-challenge-final` at revision `965040c12b814f33c8e7209f6b1799932247e793` (`FUSION_SPLIT=private_test`) |
-| Environment | Python 3.12, `uv.lock` (torch 2.5.1) |
+| Environment | Python 3.12, `uv.lock`; torch 2.5.1 (`uv sync --group torch`) only for the MLP, which no Final uses |
 | Weights | `weights/*.pkl` in this repo, sha256 in `docs/weights.sha256` (`make weights` checks them and copies them to `$RUNS/models`) |
 
 `$RUNS` defaults to `/Volumes/PortableSSD/scratch/fusion-eq-runs`; set `FUSION_RUNS_DIR` / `FUSION_DATA_DIR` and pass `RUNS=` to make on another machine.
