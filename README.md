@@ -5,7 +5,7 @@ Entry of team nas_2242 in the NeurIPS 2026 Fusion Equilibrium Challenge (Codaben
 - **DIII-D:** ridge regression from the shot inputs to 32 PCA coefficients of ψ and to the two scalars, trained on the public DIII-D train split.
 - **MAST:** a free-boundary Grad-Shafranov solve from coil Green's functions, with the plasma edge placed by Thomson scattering. No MAST equilibrium data enters it from any source. A residual model corrects the solve; it is trained only on synthetic equilibria from the same solver.
 
-Method, validation and data-use disclosures: [docs/METHODS.md](docs/METHODS.md). Pinned inputs, commands and the source of every constant: [docs/REPRODUCE.md](docs/REPRODUCE.md).
+Method, validation and data-use disclosures: [docs/METHODS.md](docs/METHODS.md) (2-page PDF: [docs/METHODS.pdf](docs/METHODS.pdf)). Pinned inputs, commands and the source of every constant: [docs/REPRODUCE.md](docs/REPRODUCE.md).
 
 ## Final submissions
 All three Finals carry the same DIII-D file (ridge, q95 and βN shrunk toward the training mean at 0.4). They differ in the MAST pipeline:

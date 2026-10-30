@@ -15,6 +15,7 @@ MAST: zero-shot physics predictor (coil Green's functions, free-boundary solve, 
 `$RUNS` defaults to `/Volumes/PortableSSD/scratch/fusion-eq-runs`; set `FUSION_RUNS_DIR` / `FUSION_DATA_DIR` and pass `RUNS=` to make on another machine.
 
 ## Commands
+Entrypoints: `scripts/train.sh` rebuilds every file in `weights/` from scratch and compares it with the shipped one; `scripts/infer.sh N [WEIGHTS_DIR]` regenerates Final N's two files from the Final inputs and prints their sha256 next to `docs/SUBMITTED.sha256`. Both run the commands below.
 ```
 make vendor setup test
 make data-train        # DIII-D train parquet
@@ -29,7 +30,7 @@ Final phase (`FUSION_SPLIT=private_test`, inputs from the pinned Final dataset r
 FUSION_DIIID_ONLY=1 make submission                       # ridge DIII-D file
 python -m fusion_eq.d3d_shrink D3D.npz D3D_S04.npz --lam 0.4   # q95/betaN shrink, same file in every Final
 python -m fusion_eq.mast_batch --sol 0.5 --freeb-iter 4 --cache IT4                  # MAST solve
-python -m fusion_eq.twin gen --machine mast --rows ROWS --sol-from IT4 --out TWM      # synthetic MAST
+python -m fusion_eq.twin gen --machine mast --rows ROWS --sol-from IT4 --out TWM --frames 8   # synthetic MAST
 python -m fusion_eq.twin fit --data TWM --model TWM.pkl --kind ridge
 python -m fusion_eq.twin apply --cache IT4 --rows ROWS --model TWM_MODE.pkl --c 1.0 --out T2   # Final 2: per-mode scales
 python -m fusion_eq.closure data --files d3d_train_files.txt --exclude bench300_files.txt --n 1500 --out CLD.npz   # DIII-D train frames
@@ -77,7 +78,7 @@ Shot lists are in `docs/lists/` as shot ids in the order used (the closure draws
 - `mast_vertical.Z_MAX = 0.15` m: search bound for the force-balance vertical shift, from MAST vertical-stability physics (Windridge et al., PPCF 53, 035018 (2011); O'Gorman et al., Nucl. Fusion 54, 082002 (2014)).
 - Solver options (`--profile spitzer`, `--vertical`, `--warm`, `--freeb-iter`) are pipeline variants, not fitted constants.
 - Twin generator priors (`twin.COIL_ERR = 0.03`, `FIELD_ERR = (0.02, 0.005)` T, `EDGE_ERR = (0.03, 0.02)` m, `EDGE_REJECT = 0.15` m, 32 ψ modes, 16 coil-flux modes): assumed magnitudes of coil calibration error, vessel-current error field and Thomson density-edge offset, set before any bench run.
-- Twin scales: global 0.39 is the least-squares slope of the DIII-D EFIT residual on the twin correction (bench half A); per-mode scales (Finals 1 and 2) from `twin modes` and `twin map` above; Final 3 blends the two (`twin blend`). All are fitted on DIII-D train labels.
+- Twin scales: global 0.39 is the least-squares slope of the DIII-D EFIT residual on the twin correction (bench half A; `scripts/global_scale.py`, 0.397 on half B); per-mode scales (Finals 1 and 2) from `twin modes` and `twin map` above; Final 3 blends the two (`twin blend`). All are fitted on DIII-D train labels.
 - Twin blend lam 0.75 (`TWM_B75.pkl`, each per-mode scale moved a quarter of the way to 0.39): five rules between the global and per-mode scales were fixed on 2026-10-24 before any result (blend lam 0.25/0.5/0.75, per-mode only on modes with a DIII-D overlap |cos| >= 0.85, per-mode floored at 0.39). Eligible: MAST Thomson Te error not above the c8 anchor's on the selection shots (index % 15 == 7, MAST inputs only); all five were. Pick: the largest DIII-D bench300 gain over `sym` of the rule's analogue (cross-fit by half): `twin_b75pv` +0.0616 [+0.0554, +0.0738].
 - Learned closure (`closure.py`, `CLO.pkl` = `weights/closure-d3d-gbm.pkl`): per-frame alpha of the solver's current family. Target alpha* = nnls fit of that family to EFIT's J_phi inside psiN 0.95 (alpha grid 0.2-4.0) on 1500 DIII-D train shots outside bench300, 10 frames each; DIII-D labels only. Model: HistGradientBoosting on log alpha* (300 iterations, learning rate 0.05, 15 leaves, 50 samples per leaf, l2 1.0), 5 fits bagged over a shot bootstrap; settings fixed before any bench run. Features: Theil-Sen slopes of log Te and log ne over psiN 0-0.6, log q_cyl (kappa 1.8 = the solver's shape prior), log beta_p from Thomson pressure, t / tau_R and (dIp/dt / Ip) tau_R, with tau_R the Spitzer resistive time (Wesson, Tokamaks, 4th ed., sec. 2.16). On MAST and on the bench the features are read off the iter4 solve's flux. The feature set was fixed by EFIT-vs-iter4 agreement on 60 bench shots (two outer-gradient features dropped at r 0.08 and 0.12), not by bench score. Inputs are clipped to the training range; frames missing a feature keep alpha 1.
 - `d3d_shrink`: lam 0.4 chosen on the 200 DIII-D validation shots (S 0.862, the grid point closest to the 0.85 gate with about 0.01 margin); the means are DIII-D train-fold means.

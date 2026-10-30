@@ -1,0 +1,10 @@
+# Final submissions, HF dataset nas27/fusion-eq-predictions (scripts/infer.sh prints the block for its Final)
+final1  rev 9f219c65a3b1f7ddaef83aec40709b32cbe6432b
+  ea67ad7fda61370da965f56f703981ae5f5d626626a0b4ab99dbd8d9eb559a6d  diii_d_private_test.npz
+  9ae66d72396e12c7f867bf85aca56d2a07ae2c2246815f91d80bc8b0b8f16795  mast_private_test.npz
+final2  rev aa9a974feb580629bf935d07fcb211fa1b6be60d
+  ea67ad7fda61370da965f56f703981ae5f5d626626a0b4ab99dbd8d9eb559a6d  diii_d_private_test.npz
+  a07db1ba92c71e72fc76fa80a71c284e2673a8e3d81cea0ec28986548cc3277c  mast_private_test.npz
+final3  rev 2c5b8b9b05e2892341626f266d129c03edb15a8f
+  ea67ad7fda61370da965f56f703981ae5f5d626626a0b4ab99dbd8d9eb559a6d  diii_d_private_test.npz
+  00f354803172bda284815912a6299cac76944c7d05a3b6e2bd63d16d8ae83092  mast_private_test.npz
